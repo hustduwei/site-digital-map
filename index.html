@@ -2488,9 +2488,22 @@
     let borderTimer = null;
 
     async function fetchGeo(adcode, full) {
-      const res = await fetch(`${GEO_CDN}/${adcode}${full ? "_full" : ""}.json`);
-      if (!res.ok) throw new Error("地图加载失败: " + adcode);
-      return res.json();
+      const file = `${adcode}${full ? "_full" : ""}.json`;
+      const urls = [
+        `./geo/${file}`,
+        `${GEO_CDN}/${file}`
+      ];
+      let lastErr;
+      for (let i = 0; i < urls.length; i++) {
+        try {
+          const res = await fetch(urls[i]);
+          if (!res.ok) throw new Error("HTTP " + res.status + " " + urls[i]);
+          return await res.json();
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      throw lastErr || new Error("地图加载失败: " + adcode);
     }
 
     async function fetchWorldGeo() {
@@ -3180,7 +3193,7 @@
         startBorderPulse();
       } catch (e) {
         console.error(e);
-        loading.textContent = "地图加载失败，请检查网络（需访问地图 GeoJSON CDN）";
+        loading.textContent = "地图加载失败，请检查 geo 目录或网络";
         return;
       }
       loading.classList.add("hidden");
