@@ -1,0 +1,13 @@
+﻿# Windows / Office temp
+~$*
+*.tmp
+Thumbs.db
+Desktop.ini
+
+# Editor / local
+.cursor/
+.vscode/
+*.bak
+
+# OS
+.DS_Store
