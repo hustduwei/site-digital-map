@@ -1,0 +1,3554 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>工地数字地图管理云平台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700;800&family=Exo+2:wght@400;500;600;700&family=Oxanium:wght@500;600;700;800&family=Noto+Sans+SC:wght@400;500;600;700;900&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  <style>
+    :root {
+      --ice: #5ee7ff;
+      --ice-bright: #9af6ff;
+      --ice-dim: #2bb8e8;
+      --neon: #00f0ff;
+      --text: #d7f7ff;
+      --text-dim: #7eb6c9;
+      --panel: rgba(4, 18, 36, 0.55);
+      --panel-border: rgba(94, 231, 255, 0.35);
+      --glow: rgba(0, 240, 255, 0.45);
+      /* 科技风字体：标题 / 界面 / 数字 */
+      --font-display: "Orbitron", "Noto Sans SC", sans-serif;
+      --font-ui: "Exo 2", "Noto Sans SC", sans-serif;
+      --font-num: "Oxanium", "Exo 2", "Noto Sans SC", sans-serif;
+      --chart-name-font: var(--font-ui);
+      --chart-name-size: 15px;
+      --chart-name-weight: 600;
+      --chart-name-color: #7eb6c9;
+      --status-plan: #22c55e;
+      --status-running: #3dd6ff;
+      --status-done: #94a3b8;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      color: var(--text);
+      font-family: var(--font-ui);
+      font-size: 15px;
+      font-weight: 500;
+      letter-spacing: 0.4px;
+      background: #03070f;
+      user-select: none;
+    }
+
+    /* —— 深空网格 + 地形肌理 + 扫描线 —— */
+    #bgLayer, #particles, #scanlines {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+    }
+    #bgLayer {
+      z-index: 0;
+      background:
+        radial-gradient(ellipse 90% 60% at 50% 0%, rgba(20, 80, 120, 0.22), transparent 55%),
+        radial-gradient(ellipse 50% 40% at 15% 85%, rgba(0, 60, 90, 0.18), transparent 50%),
+        radial-gradient(ellipse 45% 35% at 88% 70%, rgba(10, 50, 100, 0.16), transparent 50%),
+        linear-gradient(180deg, #050c18 0%, #03070f 45%, #02060c 100%);
+    }
+    #bgLayer::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      opacity: 0.35;
+      background-image:
+        linear-gradient(rgba(70, 180, 220, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(70, 180, 220, 0.045) 1px, transparent 1px);
+      background-size: 48px 48px;
+      animation: gridDrift 60s linear infinite;
+    }
+    #bgLayer::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      opacity: 0.12;
+      background:
+        repeating-linear-gradient(115deg, transparent 0 18px, rgba(0,0,0,0.35) 18px 19px),
+        radial-gradient(circle at 30% 40%, rgba(80, 140, 160, 0.15), transparent 40%),
+        radial-gradient(circle at 70% 60%, rgba(40, 90, 120, 0.12), transparent 35%);
+      filter: contrast(1.05);
+    }
+    @keyframes gridDrift {
+      from { background-position: 0 0, 0 0; }
+      to { background-position: 48px 48px, 48px 48px; }
+    }
+
+    #particles { z-index: 1; }
+    #scanlines {
+      z-index: 2;
+      opacity: 0.07;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.55) 2px,
+        rgba(0, 0, 0, 0.55) 3px
+      );
+      mix-blend-mode: multiply;
+    }
+    .soft-glow {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+      background: radial-gradient(ellipse at center, transparent 40%, rgba(0, 8, 20, 0.45) 100%);
+    }
+
+    .screen {
+      position: fixed;
+      z-index: 3;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      padding: 0 6px 14px;
+      display: grid;
+      grid-template-rows: 86px 1fr;
+      gap: 10px;
+      transform-origin: left top;
+      box-sizing: border-box;
+    }
+
+    /* —— 顶部通栏 —— */
+    .header {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 86px;
+      padding: 0 28px;
+      overflow: hidden;
+      background:
+        linear-gradient(180deg, rgba(8, 36, 62, 0.72) 0%, rgba(4, 20, 40, 0.55) 70%, rgba(3, 14, 28, 0.35) 100%);
+      border-bottom: 1px solid rgba(94, 231, 255, 0.22);
+      box-shadow: inset 0 -1px 0 rgba(94, 231, 255, 0.08);
+      border-radius: 0 0 4px 4px;
+    }
+    .header::before {
+      content: "";
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      height: 2px;
+      background: linear-gradient(90deg,
+        transparent 0%,
+        rgba(94, 231, 255, 0.2) 12%,
+        var(--ice) 50%,
+        rgba(94, 231, 255, 0.2) 88%,
+        transparent 100%);
+      box-shadow: 0 0 16px var(--neon), 0 0 32px rgba(0, 240, 255, 0.35);
+    }
+    .header::after {
+      content: "";
+      position: absolute;
+      left: 8%; right: 8%; top: 10px;
+      height: 48px;
+      background: radial-gradient(ellipse at center, rgba(0, 220, 255, 0.18), transparent 70%);
+      filter: blur(10px);
+      pointer-events: none;
+    }
+    .header-center {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      text-align: center;
+      padding: 0 8px;
+    }
+    .header-title {
+      position: relative;
+      z-index: 1;
+      font-family: var(--font-display);
+      font-size: 52px;
+      font-weight: 800;
+      letter-spacing: 10px;
+      color: #eaffff;
+      text-align: center;
+      text-shadow: none;
+      outline: none;
+      border: none;
+      background: transparent;
+      caret-color: var(--ice);
+      line-height: 1.15;
+      min-width: 0;
+      font-synthesis: none;
+      padding: 4px 8px;
+    }
+    .header-deco {
+      position: relative;
+      flex-shrink: 0;
+      width: 148px;
+      height: 48px;
+      pointer-events: none;
+    }
+    .header-deco::before,
+    .header-deco::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+    /* 主翼线 */
+    .header-deco::before {
+      height: 4px;
+      width: 88px;
+      border-radius: 2px;
+      background: linear-gradient(90deg, rgba(94, 231, 255, 0.95), rgba(94, 231, 255, 0.08));
+      box-shadow: 0 0 12px rgba(0, 220, 255, 0.5);
+    }
+    /* 菱形锚点 */
+    .header-deco::after {
+      width: 14px;
+      height: 14px;
+      background: linear-gradient(135deg, #eaffff, #5ee7ff);
+      transform: translateY(-50%) rotate(45deg);
+      box-shadow: 0 0 14px rgba(0, 240, 255, 0.85);
+    }
+    .header-deco-left::before {
+      right: 24px;
+      background: linear-gradient(90deg, rgba(94, 231, 255, 0.08), rgba(94, 231, 255, 0.95));
+    }
+    .header-deco-left::after { right: 4px; }
+    .header-deco-right::before { left: 24px; }
+    .header-deco-right::after { left: 4px; }
+    .header-deco-dots {
+      position: absolute;
+      top: 50%;
+      display: flex;
+      gap: 7px;
+      transform: translateY(-50%);
+    }
+    .header-deco-left .header-deco-dots { right: 46px; }
+    .header-deco-right .header-deco-dots { left: 46px; flex-direction: row-reverse; }
+    .header-deco-dots i {
+      display: block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #9af6ff;
+      box-shadow: 0 0 8px rgba(0, 240, 255, 0.9);
+      opacity: 0.95;
+    }
+    .header-deco-dots i:nth-child(2) { opacity: 0.65; width: 5px; height: 5px; }
+    .header-deco-dots i:nth-child(3) { opacity: 0.4; width: 4px; height: 4px; }
+    .header-left {
+      position: absolute;
+      left: 28px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 2;
+      display: flex;
+      align-items: center;
+    }
+    .btn-fullscreen {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      height: 40px;
+      padding: 0 14px;
+      border-radius: 4px;
+      border: 1px solid rgba(94, 231, 255, 0.45);
+      background: rgba(4, 24, 44, 0.7);
+      color: var(--ice-bright);
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      text-shadow: 0 0 8px rgba(94, 231, 255, 0.45);
+      font-family: inherit;
+    }
+    .btn-fullscreen:hover {
+      border-color: rgba(154, 246, 255, 0.7);
+      background: rgba(0, 80, 120, 0.45);
+      box-shadow: 0 0 14px rgba(0, 220, 255, 0.25);
+    }
+    .btn-fullscreen svg {
+      width: 18px;
+      height: 18px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .header-right {
+      position: absolute;
+      right: 28px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 2;
+      display: inline-flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 14px;
+      font-family: var(--font-num);
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      color: var(--ice-bright);
+      text-shadow: 0 0 10px rgba(94, 231, 255, 0.55);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      max-width: none;
+    }
+    .header-right .meta-clock {
+      display: inline-block;
+      white-space: nowrap;
+      font: inherit;
+      color: inherit;
+      letter-spacing: inherit;
+      text-shadow: inherit;
+    }
+
+    /* —— 主体三栏 —— */
+
+    /* —— 主体三栏 —— */
+    .main {
+      display: grid;
+      grid-template-columns: 390px 1fr 390px;
+      gap: 10px;
+      min-height: 0;
+    }
+
+    .left-col {
+      display: grid;
+      grid-template-rows: 1fr 1fr 1fr;
+      gap: 10px;
+      min-height: 0;
+    }
+    .right-col {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .left-col .glass,
+    .right-col .glass {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .right-col .glass { flex: 1; }
+    .chart-box { flex: 1; min-height: 0; width: 100%; }
+
+    /* 项目覆盖：复用项目阶段卡片结构，单位列表 3 条轮播 */
+    .unit-cover-caption {
+      flex: 0 0 auto;
+      width: 100%;
+      max-width: 280px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--chart-name-color);
+      letter-spacing: 0.4px;
+      line-height: 1.35;
+      margin-top: -2px;
+    }
+    .unit-cover-caption b {
+      font-family: var(--font-num);
+      font-weight: 800;
+      color: #9af6ff;
+      font-variant-numeric: tabular-nums;
+      margin: 0 2px;
+    }
+    .unit-carousel {
+      flex: 0 0 auto;
+      width: 100%;
+      max-width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      min-height: 0;
+      padding: 0 2px;
+      box-sizing: border-box;
+    }
+    .unit-carousel .status-legend {
+      min-height: 66px;
+      max-width: none;
+      width: 100%;
+    }
+    .unit-carousel .status-legend-item {
+      grid-template-columns: 10px minmax(0, 1fr) auto auto;
+      gap: 8px;
+    }
+    .unit-carousel .status-legend-item .sl-name {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 13px;
+    }
+    .unit-carousel-dots {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      min-height: 10px;
+    }
+    .unit-carousel-dots button {
+      width: 7px;
+      height: 7px;
+      padding: 0;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      background: rgba(94, 231, 255, 0.28);
+      box-shadow: none;
+      transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .unit-carousel-dots button.is-active {
+      background: #5ee7ff;
+      transform: scale(1.2);
+      box-shadow: 0 0 8px rgba(94, 231, 255, 0.65);
+    }
+    .unit-carousel-dots button:focus-visible {
+      outline: 1px solid rgba(154, 246, 255, 0.7);
+      outline-offset: 2px;
+    }
+
+    /* 项目阶段：环图 + 紧贴图例 */
+    .status-panel {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 0;
+      padding: 8px 18px 10px;
+      box-sizing: border-box;
+      gap: 6px;
+    }
+    .status-ring-wrap {
+      position: relative;
+      flex: 0 0 auto;
+      width: 145px;
+      height: 145px;
+      margin: 0 auto;
+    }
+    .status-ring-chart {
+      width: 100%;
+      height: 100%;
+    }
+    .status-ring-center {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 5;
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1px;
+      pointer-events: none;
+      background: rgba(4, 16, 28, 0.55);
+      box-shadow: none;
+    }
+    .status-ring-center .src-num {
+      font-family: var(--font-num);
+      font-size: 24px;
+      font-weight: 800;
+      line-height: 1;
+      color: rgba(200, 236, 248, 0.88);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 1px;
+    }
+    .status-ring-center .src-label {
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1;
+      color: rgba(126, 182, 201, 0.85);
+      letter-spacing: 1px;
+    }
+    .status-legend {
+      flex: 0 0 auto;
+      width: 100%;
+      max-width: 280px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 0;
+      list-style: none;
+      margin: 0;
+    }
+    .status-legend-item {
+      display: grid;
+      grid-template-columns: 10px 1fr auto auto;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      color: var(--chart-name-color);
+      letter-spacing: 0.5px;
+      line-height: 1.3;
+      padding: 0;
+    }
+    .status-legend-item .sl-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      box-shadow: 0 0 6px currentColor;
+    }
+    .status-legend-item .sl-name {
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--chart-name-color);
+    }
+    .status-legend-item .sl-count {
+      font-family: var(--font-num);
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      color: var(--chart-name-color);
+      min-width: 2.4em;
+      text-align: right;
+      font-size: 14px;
+    }
+    .status-legend-item .sl-pct {
+      font-family: var(--font-num);
+      font-variant-numeric: tabular-nums;
+      color: var(--chart-name-color);
+      min-width: 3.2em;
+      text-align: right;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .center-col {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .center-col .map-wrap {
+      flex: 1;
+      min-height: 0;
+      height: 100%;
+    }
+
+    /* 中间顶部核心指标：浮在地图上方，不占位、不挡地图区域 */
+    .kpi-strip {
+      position: absolute;
+      top: 8px;
+      left: 0;
+      right: 0;
+      z-index: 7;
+      display: flex;
+      justify-content: center;
+      align-items: stretch;
+      gap: 32px;
+      padding: 0 12px;
+      pointer-events: none;
+      background: transparent;
+    }
+    .kpi-strip .kpi-card {
+      pointer-events: auto;
+    }
+    .kpi-card {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 220px;
+      padding: 14px 22px;
+      background:
+        linear-gradient(145deg, rgba(8, 36, 62, 0.62) 0%, rgba(4, 22, 40, 0.58) 100%);
+      border: 1px solid rgba(94, 231, 255, 0.32);
+      border-radius: 4px;
+      box-shadow:
+        0 0 14px rgba(0, 200, 255, 0.1),
+        inset 0 1px 0 rgba(158, 240, 255, 0.1),
+        inset 0 0 18px rgba(0, 100, 160, 0.06);
+      backdrop-filter: blur(12px);
+    }
+    .kpi-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(94, 231, 255, 0.45);
+      background: radial-gradient(circle at 35% 30%, rgba(94, 231, 255, 0.28), rgba(4, 30, 55, 0.9));
+      box-shadow: 0 0 14px rgba(0, 220, 255, 0.35);
+      flex-shrink: 0;
+    }
+    .kpi-icon svg {
+      width: 24px;
+      height: 24px;
+      fill: none;
+      stroke: #9af6ff;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      filter: drop-shadow(0 0 4px rgba(94, 231, 255, 0.7));
+    }
+    .kpi-body { display: flex; flex-direction: column; gap: 2px; }
+    .kpi-label {
+      font-family: var(--chart-name-font);
+      font-size: var(--chart-name-size);
+      font-weight: var(--chart-name-weight);
+      color: var(--chart-name-color);
+      letter-spacing: 0;
+      line-height: 1.2;
+      text-shadow: none;
+      -webkit-font-smoothing: antialiased;
+    }
+    .kpi-num-row {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+    .kpi-value {
+      font-family: var(--font-num);
+      font-size: 46px;
+      font-weight: 700;
+      color: var(--ice-bright);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 1px;
+      text-shadow:
+        0 0 12px rgba(94, 231, 255, 0.95),
+        0 0 28px rgba(0, 220, 255, 0.55);
+      line-height: 1.05;
+      animation: textBreath 3.2s ease-in-out infinite;
+    }
+    .kpi-unit {
+      font-family: var(--font-ui);
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      color: var(--ice-dim);
+      text-shadow: 0 0 8px rgba(0, 200, 255, 0.4);
+    }
+    @keyframes textBreath {
+      0%, 100% { filter: brightness(1); }
+      50% { filter: brightness(1.15); }
+    }
+
+    /* 磨砂玻璃面板 */
+    .glass {
+      position: relative;
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 4px;
+      backdrop-filter: blur(14px) saturate(1.2);
+      box-shadow:
+        0 0 20px rgba(0, 200, 255, 0.1),
+        inset 0 0 30px rgba(0, 120, 180, 0.06),
+        inset 0 1px 0 rgba(158, 240, 255, 0.12);
+      overflow: hidden;
+    }
+    .glass::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      box-shadow: inset 0 0 0 1px rgba(94, 231, 255, 0.08);
+    }
+
+    .panel-head {
+      position: relative;
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 10px;
+      padding: 0 18px 0 16px;
+      font-family: var(--font-ui);
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      border: none;
+      box-shadow: inset 0 -1px 0 rgba(94, 231, 255, 0.35);
+      font-synthesis: none;
+    }
+    .panel-head::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 18px;
+      bottom: 0;
+      height: 2px;
+      background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(94, 231, 255, 0.15) 8%,
+        #5ee7ff 28%,
+        #9af6ff 48%,
+        #5ee7ff 68%,
+        rgba(94, 231, 255, 0.15) 88%,
+        transparent 100%
+      );
+      box-shadow: 0 0 10px rgba(0, 240, 255, 0.55);
+      pointer-events: none;
+    }
+    .panel-head::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: -40%;
+      width: 36%;
+      height: 100%;
+      background: linear-gradient(
+        100deg,
+        transparent,
+        rgba(158, 246, 255, 0.18),
+        transparent
+      );
+      animation: panelHeadScan 4.8s ease-in-out infinite;
+      pointer-events: none;
+    }
+    @keyframes panelHeadScan {
+      0%, 18% { transform: translateX(0); opacity: 0; }
+      28% { opacity: 1; }
+      72% { transform: translateX(320%); opacity: 0.7; }
+      85%, 100% { transform: translateX(360%); opacity: 0; }
+    }
+    .panel-head .ph-diamond {
+      position: relative;
+      z-index: 1;
+      width: 10px;
+      height: 10px;
+      flex-shrink: 0;
+      transform: rotate(45deg);
+      background: linear-gradient(135deg, #eaffff, #5ee7ff 55%, #00c8e8);
+      box-shadow:
+        0 0 8px rgba(0, 240, 255, 0.85),
+        0 0 16px rgba(0, 200, 255, 0.4);
+      margin-right: 2px;
+    }
+    .panel-head .ph-diamond::before,
+    .panel-head .ph-diamond::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      width: 2px;
+      height: 16px;
+      background: linear-gradient(180deg, transparent, #5ee7ff, transparent);
+      box-shadow: 0 0 6px rgba(0, 240, 255, 0.5);
+      transform: translateY(-50%) rotate(-45deg);
+    }
+    .panel-head .ph-diamond::before { left: -8px; }
+    .panel-head .ph-diamond::after { right: -8px; }
+    .panel-head span {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      text-align: left;
+      flex-shrink: 0;
+      font-family: inherit;
+      letter-spacing: inherit;
+      text-shadow: 0 0 12px rgba(94, 231, 255, 0.35);
+    }
+    .panel-head .ph-trail {
+      position: relative;
+      z-index: 1;
+      flex: 1;
+      height: 2px;
+      min-width: 40px;
+      margin-left: 4px;
+      margin-right: 8px;
+      background: linear-gradient(
+        90deg,
+        rgba(94, 231, 255, 0.75),
+        rgba(94, 231, 255, 0.25) 40%,
+        transparent 100%
+      );
+      border-radius: 1px;
+    }
+    .panel-head .ph-trail::before,
+    .panel-head .ph-trail::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      border-radius: 50%;
+      background: #9af6ff;
+      box-shadow: 0 0 6px rgba(0, 240, 255, 0.8);
+    }
+    .panel-head .ph-trail::before {
+      left: 0;
+      width: 5px;
+      height: 5px;
+    }
+    .panel-head .ph-trail::after {
+      left: 18px;
+      width: 3px;
+      height: 3px;
+      opacity: 0.7;
+    }
+
+    /* 中央地图 */
+    .map-wrap {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .map-toolbar {
+      position: absolute;
+      top: 128px;
+      left: 14px;
+      z-index: 6;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .btn-back {
+      display: none;
+      align-items: center;
+      padding: 6px 12px;
+      font-size: 14px;
+      color: var(--ice);
+      background: rgba(4, 24, 44, 0.7);
+      border: 1px solid rgba(94, 231, 255, 0.4);
+      border-radius: 2px;
+      cursor: pointer;
+      text-shadow: 0 0 8px rgba(94, 231, 255, 0.5);
+      backdrop-filter: blur(8px);
+    }
+    .btn-back:hover {
+      box-shadow: 0 0 14px rgba(0, 240, 255, 0.35);
+      background: rgba(0, 80, 120, 0.45);
+    }
+    .map-breadcrumb {
+      font-size: 14px;
+      color: var(--text-dim);
+      padding: 5px 10px;
+      background: rgba(4, 20, 36, 0.55);
+      border: 1px solid rgba(94, 231, 255, 0.22);
+      border-radius: 2px;
+      backdrop-filter: blur(8px);
+    }
+    .map-breadcrumb b {
+      color: var(--ice-bright);
+      text-shadow: 0 0 8px rgba(94, 231, 255, 0.6);
+      font-weight: 600;
+    }
+    #mapChart { flex: 1; width: 100%; min-height: 0; }
+
+    .compass {
+      position: absolute;
+      left: 20px;
+      bottom: 22px;
+      z-index: 6;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      border: 1px solid rgba(94, 231, 255, 0.45);
+      background: rgba(4, 18, 36, 0.55);
+      box-shadow: 0 0 16px rgba(0, 200, 255, 0.25), inset 0 0 12px rgba(0, 160, 220, 0.15);
+      backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .compass::before {
+      content: "";
+      position: absolute;
+      width: 2px;
+      height: 18px;
+      top: 8px;
+      background: linear-gradient(180deg, #ff6b6b, transparent);
+      box-shadow: 0 0 6px rgba(255, 100, 100, 0.6);
+    }
+    .compass span {
+      margin-top: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--ice-bright);
+      text-shadow: 0 0 10px var(--neon);
+      letter-spacing: 1px;
+    }
+
+    .loading-tip {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(2, 8, 18, 0.45);
+      z-index: 8;
+      color: var(--ice);
+      font-size: 14px;
+      letter-spacing: 2px;
+      text-shadow: 0 0 10px rgba(94, 231, 255, 0.5);
+    }
+    .loading-tip.hidden { display: none; }
+
+    /* 项目清单 */
+    .project-panel-body {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      padding: 12px;
+      gap: 12px;
+    }
+    .project-search {
+      position: relative;
+      flex-shrink: 0;
+    }
+    .project-search input {
+      width: 100%;
+      height: 38px;
+      padding: 0 40px 0 16px;
+      border-radius: 19px;
+      border: 1px solid rgba(94, 231, 255, 0.3);
+      background: rgba(4, 22, 40, 0.75);
+      color: var(--text);
+      font-size: 15px;
+      outline: none;
+      box-shadow: inset 0 0 12px rgba(0, 100, 160, 0.12);
+      font-family: inherit;
+    }
+    .project-search input::placeholder { color: rgba(126, 182, 201, 0.65); }
+    .project-search input:focus {
+      border-color: rgba(94, 231, 255, 0.55);
+      box-shadow: 0 0 12px rgba(0, 200, 255, 0.2), inset 0 0 12px rgba(0, 100, 160, 0.12);
+    }
+    .project-search .search-icon {
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 16px;
+      height: 16px;
+      pointer-events: none;
+      opacity: 0.75;
+    }
+    .project-search .search-icon svg {
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: #7eb6c9;
+      stroke-width: 2;
+      stroke-linecap: round;
+    }
+    .project-filters {
+      flex-shrink: 0;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .project-dd {
+      position: relative;
+      min-width: 0;
+    }
+    .project-dd-btn {
+      position: relative;
+      width: 100%;
+      height: 34px;
+      padding: 0 28px 0 10px;
+      border-radius: 5px;
+      border: 1px solid rgba(94, 231, 255, 0.28);
+      background: rgba(4, 22, 40, 0.75);
+      color: var(--chart-name-color);
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      letter-spacing: 0.3px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: border-color 0.2s, box-shadow 0.2s, color 0.2s;
+    }
+    .project-dd-btn::after {
+      content: "";
+      position: absolute;
+      right: 10px;
+      top: 50%;
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 6px solid #7eb6c9;
+      transform: translateY(-40%);
+      pointer-events: none;
+    }
+    .project-dd.is-open .project-dd-btn::after {
+      transform: translateY(-60%) rotate(180deg);
+    }
+    .project-dd-btn:hover,
+    .project-dd.is-open .project-dd-btn {
+      border-color: rgba(94, 231, 255, 0.55);
+      color: #9af6ff;
+      box-shadow: 0 0 10px rgba(0, 200, 255, 0.15);
+    }
+    .project-dd-label {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: left;
+    }
+    .project-dd-count {
+      flex-shrink: 0;
+      color: #9af6ff;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      margin-right: 2px;
+    }
+    .project-dd-menu {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: calc(100% + 4px);
+      z-index: 30;
+      margin: 0;
+      padding: 4px;
+      list-style: none;
+      max-height: 240px;
+      overflow: auto;
+      border-radius: 5px;
+      border: 1px solid rgba(94, 231, 255, 0.35);
+      background: rgba(4, 18, 34, 0.96);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 12px rgba(0, 180, 255, 0.12);
+      display: none;
+    }
+    .project-dd.is-open .project-dd-menu { display: block; }
+    .project-dd-menu::-webkit-scrollbar { width: 4px; }
+    .project-dd-menu::-webkit-scrollbar-thumb {
+      background: rgba(94, 231, 255, 0.35);
+      border-radius: 2px;
+    }
+    .project-dd-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      min-height: 32px;
+      padding: 4px 8px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--chart-name-color);
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      text-align: left;
+    }
+    .project-dd-item:hover {
+      background: rgba(0, 140, 180, 0.22);
+      color: #9af6ff;
+    }
+    .project-dd-item.is-active {
+      background: rgba(0, 140, 180, 0.32);
+      color: #9af6ff;
+    }
+    .project-dd-item-label {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .project-dd-item-count {
+      flex-shrink: 0;
+      color: #9af6ff;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }
+    .project-dd-item.is-active .project-dd-item-count { color: #ffffff; }
+    .project-list {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding-right: 2px;
+    }
+    .project-list::-webkit-scrollbar { width: 4px; }
+    .project-list::-webkit-scrollbar-thumb {
+      background: rgba(94, 231, 255, 0.35);
+      border-radius: 2px;
+    }
+    .project-card {
+      position: relative;
+      padding: 12px 14px;
+      border-radius: 6px;
+      border: 1px solid rgba(94, 231, 255, 0.22);
+      background: rgba(6, 28, 48, 0.55);
+      cursor: pointer;
+      transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+    }
+    .project-card::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 5px;
+      border-radius: 6px 0 0 6px;
+      background: #9aa8b8;
+      pointer-events: none;
+    }
+    /* 规划对接：绿色 */
+    .project-card.status-plan::before {
+      background: var(--status-plan);
+    }
+    /* 持续应用中：品牌冰蓝 */
+    .project-card.status-running::before {
+      background: var(--status-running);
+    }
+    /* 应用结束：灰色 */
+    .project-card.status-done::before {
+      background: var(--status-done);
+    }
+    .project-card:hover {
+      border-color: rgba(94, 231, 255, 0.5);
+      background: rgba(10, 40, 70, 0.7);
+      box-shadow: 0 0 14px rgba(0, 200, 255, 0.15);
+    }
+    .project-card-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .project-card-name {
+      font-size: 17px;
+      font-weight: 700;
+      color: #e8f8ff;
+      letter-spacing: 0.5px;
+      text-shadow: 0 0 8px rgba(94, 231, 255, 0.35);
+      line-height: 1.35;
+    }
+    .project-card-status {
+      flex-shrink: 0;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      letter-spacing: 0.5px;
+      border: 1px solid rgba(94, 231, 255, 0.25);
+      background: rgba(20, 50, 80, 0.65);
+      color: #9ebfd0;
+      white-space: nowrap;
+    }
+    .project-card-status.status-running {
+      color: var(--status-running);
+      border-color: rgba(61, 214, 255, 0.5);
+      background: rgba(0, 120, 160, 0.25);
+    }
+    .project-card-status.status-plan {
+      color: var(--status-plan);
+      border-color: rgba(34, 197, 94, 0.45);
+      background: rgba(20, 90, 50, 0.3);
+    }
+    .project-card-status.status-done {
+      color: var(--status-done);
+      border-color: rgba(148, 163, 184, 0.45);
+      background: rgba(70, 80, 95, 0.35);
+    }
+    .modal-row .value .project-card-status {
+      display: inline-block;
+      font-size: 14px;
+      padding: 4px 10px;
+      font-weight: 700;
+    }
+    .project-card-loc {
+      font-size: 14px;
+      color: #8eb6d8;
+      margin-bottom: 6px;
+      line-height: 1.4;
+    }
+    .project-card-date {
+      font-size: 14px;
+      color: rgba(126, 182, 201, 0.75);
+    }
+    .project-empty {
+      text-align: center;
+      padding: 40px 12px;
+      color: rgba(126, 182, 201, 0.65);
+      font-size: 13px;
+    }
+
+    /* 启动页密码验证 */
+    .login-gate {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background:
+        radial-gradient(ellipse 70% 50% at 50% 35%, rgba(20, 90, 130, 0.28), transparent 60%),
+        rgba(2, 8, 16, 0.72);
+      backdrop-filter: blur(8px);
+      transition: opacity 0.35s ease, visibility 0.35s ease;
+    }
+    .login-gate.is-hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+    .login-card {
+      width: min(420px, calc(100vw - 40px));
+      padding: 36px 34px 30px;
+      background: linear-gradient(160deg, rgba(6, 28, 48, 0.96), rgba(3, 14, 28, 0.98));
+      border: 1px solid rgba(94, 231, 255, 0.45);
+      border-radius: 4px;
+      box-shadow: 0 0 48px rgba(0, 220, 255, 0.28), inset 0 0 40px rgba(0, 120, 180, 0.1);
+      text-align: center;
+      animation: modalIn 0.32s ease;
+    }
+    .login-brand {
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      color: #e8f8ff;
+      text-shadow: 0 0 18px rgba(94, 231, 255, 0.45);
+      margin-bottom: 8px;
+      line-height: 1.35;
+    }
+    .login-sub {
+      font-size: 14px;
+      color: var(--text-dim);
+      margin-bottom: 26px;
+      letter-spacing: 1px;
+    }
+    .login-form {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .login-form input {
+      width: 100%;
+      height: 46px;
+      padding: 0 16px;
+      border: 1px solid rgba(94, 231, 255, 0.35);
+      border-radius: 4px;
+      background: rgba(4, 20, 36, 0.85);
+      color: #e8f8ff;
+      font-family: var(--font-ui);
+      font-size: 16px;
+      letter-spacing: 4px;
+      text-align: center;
+      outline: none;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .login-form input:focus {
+      border-color: rgba(94, 231, 255, 0.75);
+      box-shadow: 0 0 16px rgba(0, 240, 255, 0.25);
+    }
+    .login-form input::placeholder {
+      letter-spacing: 1px;
+      color: rgba(126, 182, 201, 0.55);
+    }
+    .login-form button {
+      height: 46px;
+      border: 1px solid rgba(94, 231, 255, 0.55);
+      border-radius: 4px;
+      background: linear-gradient(90deg, rgba(0, 120, 170, 0.75), rgba(0, 180, 220, 0.55));
+      color: #e8f8ff;
+      font-family: var(--font-ui);
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      cursor: pointer;
+      transition: filter 0.2s ease, box-shadow 0.2s ease;
+      box-shadow: 0 0 18px rgba(0, 220, 255, 0.2);
+    }
+    .login-form button:hover {
+      filter: brightness(1.12);
+      box-shadow: 0 0 24px rgba(0, 240, 255, 0.35);
+    }
+    .login-error {
+      margin-top: 14px;
+      min-height: 20px;
+      font-size: 13px;
+      color: #ff7b7b;
+      letter-spacing: 0.5px;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    .login-error.is-show { opacity: 1; }
+
+    /* 弹窗 */
+    .modal-mask {
+      position: absolute;
+      inset: 0;
+      z-index: 100;
+      background: rgba(1, 6, 14, 0.72);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+    }
+    .modal-mask.show { display: flex; }
+    .modal {
+      width: 480px;
+      background: linear-gradient(160deg, rgba(6, 28, 48, 0.95), rgba(3, 14, 28, 0.98));
+      border: 1px solid rgba(94, 231, 255, 0.45);
+      border-radius: 4px;
+      box-shadow: 0 0 40px rgba(0, 220, 255, 0.3), inset 0 0 40px rgba(0, 120, 180, 0.1);
+      animation: modalIn 0.28s ease;
+      backdrop-filter: blur(16px);
+    }
+    @keyframes modalIn {
+      from { opacity: 0; transform: scale(0.94) translateY(10px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid rgba(94, 231, 255, 0.25);
+      background: linear-gradient(90deg, rgba(0, 160, 220, 0.22), transparent);
+    }
+    .modal-head h3 {
+      font-size: 18px;
+      letter-spacing: 2px;
+      color: var(--ice-bright);
+      text-shadow: 0 0 12px rgba(94, 231, 255, 0.6);
+    }
+    .modal-close {
+      width: 28px;
+      height: 28px;
+      border: 1px solid rgba(94, 231, 255, 0.4);
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      border-radius: 2px;
+      font-size: 16px;
+    }
+    .modal-close:hover { background: rgba(0, 160, 220, 0.25); }
+    .modal-body { padding: 18px 22px 22px; display: grid; gap: 14px; }
+    .modal-row {
+      display: grid;
+      grid-template-columns: 100px 1fr;
+      gap: 8px;
+      font-size: 15px;
+      align-items: center;
+    }
+    .modal-row .label { color: var(--text-dim); }
+    .modal-row .value {
+      color: var(--text);
+      text-shadow: 0 0 6px rgba(94, 231, 255, 0.25);
+    }
+    .progress-bar {
+      height: 8px;
+      background: rgba(0, 40, 70, 0.55);
+      border: 1px solid rgba(94, 231, 255, 0.25);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 6px;
+    }
+    .progress-bar i {
+      display: block;
+      height: 100%;
+      background: linear-gradient(90deg, var(--ice-dim), var(--ice-bright));
+      box-shadow: 0 0 10px var(--neon);
+      transition: width 0.6s ease;
+    }
+
+  </style>
+</head>
+<body>
+  <div id="bgLayer"></div>
+  <canvas id="particles"></canvas>
+  <div id="scanlines"></div>
+  <div class="soft-glow"></div>
+
+  <div class="login-gate" id="loginGate">
+    <div class="login-card">
+      <div class="login-brand">工地数字地图管理云平台</div>
+      <div class="login-sub">请输入访问密码后进入系统</div>
+      <form class="login-form" id="loginForm" autocomplete="off">
+        <input
+          type="password"
+          id="loginPwd"
+          placeholder="访问密码"
+          maxlength="32"
+          inputmode="numeric"
+          autocomplete="current-password"
+        />
+        <button type="submit">进入系统</button>
+      </form>
+      <div class="login-error" id="loginError">密码错误，请重试</div>
+    </div>
+  </div>
+
+  <div class="screen" id="screenRoot">
+    <header class="header">
+      <div class="header-left">
+        <button type="button" class="btn-fullscreen" id="btnFullscreen" title="全屏展示">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>
+          </svg>
+          <span class="btn-fullscreen-text">全屏展示</span>
+        </button>
+      </div>
+      <div class="header-center">
+        <div class="header-deco header-deco-left" aria-hidden="true">
+          <span class="header-deco-dots"><i></i><i></i><i></i></span>
+        </div>
+        <div
+          class="header-title"
+          id="pageTitle"
+          contenteditable="true"
+          spellcheck="false"
+          title="点击可编辑标题"
+        >工地数字地图管理云平台</div>
+        <div class="header-deco header-deco-right" aria-hidden="true">
+          <span class="header-deco-dots"><i></i><i></i><i></i></span>
+        </div>
+      </div>
+      <div class="header-right">
+        <span class="meta-clock" id="metaClock">----/--/-- 周- --:--:--</span>
+      </div>
+    </header>
+
+    <section class="main">
+      <!-- 左：状态 / 类型 / 项目覆盖 -->
+      <aside class="left-col">
+        <div class="glass">
+          <div class="panel-head"><i class="ph-diamond" aria-hidden="true"></i><span>项目阶段</span><i class="ph-trail" aria-hidden="true"></i></div>
+          <div class="chart-box status-panel">
+            <div class="status-ring-wrap">
+              <div class="status-ring-chart" id="statusChart"></div>
+              <div class="status-ring-center" aria-hidden="true">
+                <span class="src-num" id="statusTotalNum">0</span>
+                <span class="src-label">项目</span>
+              </div>
+            </div>
+            <ul class="status-legend" id="statusLegend"></ul>
+          </div>
+        </div>
+        <div class="glass">
+          <div class="panel-head"><i class="ph-diamond" aria-hidden="true"></i><span>项目类型</span><i class="ph-trail" aria-hidden="true"></i></div>
+          <div class="chart-box" id="typeChart"></div>
+        </div>
+        <div class="glass">
+          <div class="panel-head"><i class="ph-diamond" aria-hidden="true"></i><span>项目覆盖</span><i class="ph-trail" aria-hidden="true"></i></div>
+          <div class="chart-box status-panel">
+            <div class="status-ring-wrap">
+              <div class="status-ring-chart" id="unitCoverChart"></div>
+              <div class="status-ring-center" aria-hidden="true">
+                <span class="src-num" id="unitCoverPct">0%</span>
+                <span class="src-label" id="unitCoverFrac">0/23</span>
+              </div>
+            </div>
+            <div class="unit-cover-caption">已覆盖 <b id="unitCoveredNum">0</b> 家三局二级单位</div>
+            <div class="unit-carousel" id="unitCarousel">
+              <ul class="status-legend" id="unitLegend"></ul>
+              <div class="unit-carousel-dots" id="unitCarouselDots" role="tablist" aria-label="应用单位翻页"></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 中：核心指标 + 地图 -->
+      <div class="center-col">
+        <div class="kpi-strip" id="kpiRow">
+          <div class="kpi-card">
+            <div class="kpi-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M3 21h18"/><path d="M5 21V8l7-4 7 4v13"/><path d="M9 21v-6h6v6"/></svg>
+            </div>
+            <div class="kpi-body">
+              <div class="kpi-label">项目数量</div>
+              <div class="kpi-num-row">
+                <span class="kpi-value" data-target="37">0</span>
+                <span class="kpi-unit">个</span>
+              </div>
+            </div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M12 21s7-5.2 7-11a7 7 0 1 0-14 0c0 5.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+            </div>
+            <div class="kpi-body">
+              <div class="kpi-label">分布省份</div>
+              <div class="kpi-num-row">
+                <span class="kpi-value" data-target="14">0</span>
+                <span class="kpi-unit">个</span>
+              </div>
+            </div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
+            </div>
+            <div class="kpi-body">
+              <div class="kpi-label">接入设备种类</div>
+              <div class="kpi-num-row">
+                <span class="kpi-value" data-target="10">0</span>
+                <span class="kpi-unit">类</span>
+              </div>
+            </div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M4 18h16"/><path d="M7 18V9l5-3 5 3v9"/><path d="M9 12h6"/><path d="M9 15h6"/></svg>
+            </div>
+            <div class="kpi-body">
+              <div class="kpi-label">接入设备数量</div>
+              <div class="kpi-num-row">
+                <span class="kpi-value" data-target="284">0</span>
+                <span class="kpi-unit">台</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="map-wrap">
+          <div class="map-toolbar">
+            <button class="btn-back" id="btnBack">← 返回全国</button>
+            <div class="map-breadcrumb">当前层级：<b id="mapLevel">全国</b></div>
+          </div>
+          <div id="mapChart"></div>
+          <div class="compass" title="正北"><span>N</span></div>
+          <div class="loading-tip" id="mapLoading">地图数据加载中...</div>
+        </div>
+      </div>
+
+      <!-- 右：项目清单 -->
+      <aside class="right-col">
+        <div class="glass">
+          <div class="panel-head"><i class="ph-diamond" aria-hidden="true"></i><span>项目清单</span><i class="ph-trail" aria-hidden="true"></i></div>
+          <div class="project-panel-body">
+            <div class="project-search">
+              <input id="projectSearch" type="search" placeholder="搜索项目" autocomplete="off" />
+              <span class="search-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+              </span>
+            </div>
+            <div class="project-filters">
+              <div class="project-dd" id="filterRegionDd" data-filter="region">
+                <button type="button" class="project-dd-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="按省份筛选">
+                  <span class="project-dd-label">全部省份</span>
+                  <span class="project-dd-count"></span>
+                </button>
+                <div class="project-dd-menu" role="listbox"></div>
+              </div>
+              <div class="project-dd" id="filterStatusDd" data-filter="status">
+                <button type="button" class="project-dd-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="按项目阶段筛选">
+                  <span class="project-dd-label">全部阶段</span>
+                  <span class="project-dd-count"></span>
+                </button>
+                <div class="project-dd-menu" role="listbox"></div>
+              </div>
+            </div>
+            <div class="project-list" id="projectList"></div>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+  <div class="modal-mask" id="projectModal">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>项目详情</h3>
+        <button class="modal-close" id="modalClose">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-row"><span class="label">项目名称</span><span class="value" id="mName">—</span></div>
+        <div class="modal-row"><span class="label">应用单位</span><span class="value" id="mUnit">—</span></div>
+        <div class="modal-row"><span class="label">项目类型</span><span class="value" id="mType">—</span></div>
+        <div class="modal-row"><span class="label">项目位置</span><span class="value" id="mLoc">—</span></div>
+        <div class="modal-row"><span class="label">项目阶段</span><span class="value"><span class="project-card-status" id="mStatus">—</span></span></div>
+        <div class="modal-row">
+          <span class="label">推进进度</span>
+          <span class="value">
+            <span id="mProgressText">0%</span>
+            <div class="progress-bar"><i id="mProgressBar" style="width:0%"></i></div>
+          </span>
+        </div>
+        <div class="modal-row"><span class="label">应用日期</span><span class="value" id="mStart">—</span></div>
+        <div class="modal-row"><span class="label">对接人</span><span class="value" id="mOwner">—</span></div>
+        <div class="modal-row"><span class="label">联系方式</span><span class="value" id="mPhone">—</span></div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <script>
+    /**************************************************************************
+     * 业务数据区 —— 由 sync-from-excel.ps1 从 Excel 同步生成
+     * 坐标旁路：project-coords.json ；指令：在 Cursor 发送「更新大屏数据」
+     **************************************************************************/
+                                                /* === MOCK_DATA_START === */
+    const MOCK = {
+      kpi: {
+        projectTotal: 37,
+        provinceCount: 14,
+        deviceTypes: 10,
+        deviceTotal: 284
+      },
+      weatherTemp: 26,
+      bizTypes: [
+        { name: "房建", value: 24 },
+        { name: "厂房", value: 6 },
+        { name: "公建", value: 4 },
+        { name: "基建", value: 3 }
+      ],
+      devices: [
+        { name: "塔机", value: 117 },
+        { name: "电梯", value: 116 },
+        { name: "无人机", value: 15 },
+        { name: "无人车", value: 13 },
+        { name: "地磅", value: 10 },
+        { name: "机器狗", value: 5 },
+        { name: "其他", value: 8 }
+      ],
+      unitCover: {
+        covered: 11,
+        total: 23,
+        units: [
+          { name: "总承包公司", full: "中建三局集团有限公司工程总承包公司", value: 9 },
+          { name: "科创公司", full: "中建三局科创公司", value: 7 },
+          { name: "二公司", full: "中建三局第二建设工程有限责任公司", value: 6 },
+          { name: "一公司", full: "中建三局第一建设工程有限责任公司", value: 6 },
+          { name: "华南公司", full: "中建三局集团华南有限公司", value: 3 },
+          { name: "铁投公司", full: "基础设施事业部（铁投公司）", value: 1 },
+          { name: "先进院", full: "中国建筑先进技术研究院", value: 1 },
+          { name: "北京公司", full: "中建三局集团北京有限公司", value: 1 },
+          { name: "华东公司", full: "中建三局集团华东有限公司", value: 1 },
+          { name: "建设发展", full: "中建三局集团建设发展有限公司", value: 1 },
+          { name: "西南公司", full: "中建三局集团西南有限公司", value: 1 }
+        ]
+      },
+      trend: {
+        months: ["25-01","25-10","25-11","25-12","26-01","26-02","26-03","26-04","26-06","规划"],
+        values: [2, 1, 1, 1, 2, 1, 2, 1, 1, 9]
+      },
+      provinceProjects: {
+        "北京市": 2,
+        "天津市": 1,
+        "河北省": 0,
+        "山西省": 0,
+        "内蒙古自治区": 0,
+        "辽宁省": 3,
+        "吉林省": 0,
+        "黑龙江省": 0,
+        "上海市": 1,
+        "江苏省": 4,
+        "浙江省": 1,
+        "安徽省": 1,
+        "福建省": 1,
+        "江西省": 0,
+        "山东省": 1,
+        "河南省": 0,
+        "湖北省": 15,
+        "湖南省": 0,
+        "广东省": 4,
+        "广西壮族自治区": 0,
+        "海南省": 0,
+        "重庆市": 1,
+        "四川省": 1,
+        "贵州省": 0,
+        "云南省": 0,
+        "西藏自治区": 1,
+        "陕西省": 0,
+        "甘肃省": 0,
+        "青海省": 0,
+        "宁夏回族自治区": 0,
+        "新疆维吾尔自治区": 0,
+        "台湾省": 0,
+        "香港特别行政区": 0,
+        "澳门特别行政区": 0
+      },
+      progressCats: [
+        { name: "持续应用中", value: 13 },
+        { name: "规划对接", value: 11 },
+        { name: "应用结束", value: 13 }
+      ],
+      provinceCoords: {
+        "吉林省": [125.3, 43.9],
+        "湖南省": [113, 28.2],
+        "宁夏回族自治区": [106.3, 38.5],
+        "重庆市": [106.5, 29.6],
+        "广东省": [113.3, 23.1],
+        "河南省": [113.7, 34.8],
+        "辽宁省": [123.4, 41.8],
+        "西藏自治区": [91.1, 29.6],
+        "陕西省": [108.9, 34.3],
+        "天津市": [117.2, 39.1],
+        "河北省": [114.5, 38],
+        "北京市": [116.4, 39.9],
+        "山东省": [117, 36.7],
+        "贵州省": [106.7, 26.6],
+        "海南省": [110.3, 20],
+        "甘肃省": [103.8, 36.1],
+        "安徽省": [117.3, 31.9],
+        "福建省": [119.3, 26.1],
+        "内蒙古自治区": [111.7, 40.8],
+        "江苏省": [118.8, 32.1],
+        "山西省": [112.5, 37.9],
+        "浙江省": [120.2, 30.3],
+        "青海省": [101.8, 36.6],
+        "广西壮族自治区": [108.3, 22.8],
+        "四川省": [104.1, 30.7],
+        "新疆维吾尔自治区": [87.6, 43.8],
+        "黑龙江省": [126.6, 45.8],
+        "上海市": [121.5, 31.2],
+        "湖北省": [114.3, 30.6],
+        "云南省": [102.7, 25],
+        "江西省": [115.9, 28.7]
+      },
+      cityProjects: {
+        "安徽省": [
+          { name: "安医大项目", type: "房建", city: "合肥市", loc: "安徽省合肥市", progress: 16, status: "规划对接", start: "预计2026.09-", owner: "丁振轩", phone: "15827939799", unit: "中建三局第一建设工程有限责任公司", coord: [117.17, 31.86] }
+        ],
+        "北京市": [
+          { name: "华能总部项目", type: "房建", city: "北京市", loc: "北京市", progress: 75, status: "持续应用中", start: "2025.12-", owner: "欧洋", phone: "15209848978", unit: "中建三局集团北京有限公司", coord: [115.99, 39.1] },
+          { name: "北京壹品宝山项目", type: "房建", city: "北京市", loc: "北京市", progress: 72, status: "持续应用中", start: "2026.01-", owner: "马明贺", phone: "18649212992", unit: "中建三局第一建设工程有限责任公司", coord: [116.19, 39.94] }
+        ],
+        "福建省": [
+          { name: "厦门将军祠项目", type: "房建", city: "厦门市", loc: "福建省厦门市", progress: 58, status: "持续应用中", start: "2026.03-", owner: "黄育聪", phone: "17350810109", unit: "中建三局集团华南有限公司", coord: [118.1, 24.47] }
+        ],
+        "广东省": [
+          { name: "广州黄边村", type: "房建", city: "广州市", loc: "广东省广州市", progress: 100, status: "应用结束", start: "2025.01-2026.01", owner: "周国伟", phone: "18171409917", unit: "中建三局科创公司", coord: [113.27, 23.22] },
+          { name: "广州三元里项目", type: "房建", city: "广州市", loc: "广东省广州市", progress: 58, status: "持续应用中", start: "2026.03-", owner: "马康", phone: "19913147464", unit: "中建三局集团华南有限公司", coord: [113.26, 23.17] },
+          { name: "深圳文创园项目", type: "房建", city: "深圳市", loc: "广东省深圳市", progress: 16, status: "规划对接", start: "—", owner: "盛威", phone: "13554259491", unit: "中建三局集团华南有限公司", coord: [114.08, 22.54] },
+          { name: "深圳第一职校", type: "房建", city: "深圳市", loc: "广东省深圳市", progress: 15, status: "规划对接", start: "—", owner: "—", phone: "—", unit: "中建三局第二建设工程有限责任公司", coord: [114.08, 22.54] }
+        ],
+        "湖北省": [
+          { name: "光谷科创金融总部", type: "房建", city: "武汉市", loc: "湖北省武汉市", progress: 100, status: "应用结束", start: "2024.05-2025.09", owner: "—", phone: "—", unit: "中建三局集团有限公司工程总承包公司", coord: [114.51, 30.47] },
+          { name: "汉韵公馆", type: "房建", city: "武汉市", loc: "湖北省武汉市", progress: 100, status: "应用结束", start: "2025.01-2026.05", owner: "孙志庭", phone: "13163206595", unit: "中建三局科创公司", coord: [114.51, 30.48] },
+          { name: "九峯首府", type: "房建", city: "武汉市", loc: "湖北省武汉市", progress: 100, status: "应用结束", start: "2025.06-2026.03", owner: "向彪", phone: "—", unit: "中建三局集团有限公司工程总承包公司", coord: [114.47, 30.5] },
+          { name: "金银湖145地块项目", type: "房建", city: "武汉市", loc: "湖北省武汉市", progress: 100, status: "应用结束", start: "2025.07-2026.04", owner: "陈俊", phone: "—", unit: "中建三局第一建设工程有限责任公司", coord: [114.17, 30.64] },
+          { name: "华科学子新苑", type: "房建", city: "武汉市", loc: "湖北省武汉市", progress: 100, status: "应用结束", start: "2025.07-2026.04", owner: "罗杨", phone: "15004950133", unit: "中建三局集团有限公司工程总承包公司", coord: [114.26, 30.58] },
+          { name: "中法同济项目", type: "房建", city: "武汉市", loc: "湖北省武汉市", progress: 100, status: "应用结束", start: "2025.07-2026.04", owner: "王梅杰", phone: "15527810965", unit: "中建三局集团有限公司工程总承包公司", coord: [114.11, 30.55] },
+          { name: "戏曲中心项目", type: "公建", city: "武汉市", loc: "湖北省武汉市", progress: 100, status: "应用结束", start: "2025.09-2026.04", owner: "粟剑波", phone: "18271846276", unit: "中建三局科创公司", coord: [114.25, 30.56] },
+          { name: "葛店实验基地", type: "厂房", city: "鄂州市", loc: "湖北省鄂州市", progress: 60, status: "持续应用中", start: "2025.10-", owner: "—", phone: "—", unit: "中国建筑先进技术研究院", coord: [114.66, 30.53] },
+          { name: "华师南湖训练馆项目", type: "公建", city: "武汉市", loc: "湖北省武汉市", progress: 100, status: "应用结束", start: "2025.11-2026.04", owner: "金俊辰", phone: "13419511885", unit: "中建三局第二建设工程有限责任公司", coord: [114.36, 30.51] },
+          { name: "向阳村项目", type: "房建", city: "武汉市", loc: "湖北省武汉市", progress: 62, status: "持续应用中", start: "2026.04-", owner: "江云轩", phone: "15807155923", unit: "中建三局科创公司", coord: [114.25, 30.53] },
+          { name: "华科土环楼", type: "房建", city: "武汉市", loc: "湖北省武汉市", progress: 55, status: "持续应用中", start: "2026.06-", owner: "吴启军", phone: "18120586631", unit: "中建三局集团有限公司工程总承包公司", coord: [114.42, 30.51] },
+          { name: "光谷元著", type: "房建", city: "武汉市", loc: "湖北省武汉市", progress: 70, status: "持续应用中", start: "2026.06-", owner: "孙志庭", phone: "13163206595", unit: "中建三局科创公司", coord: [114.5, 30.47] },
+          { name: "科创阳逻厂", type: "厂房", city: "武汉市", loc: "湖北省武汉市", progress: 68, status: "持续应用中", start: "2026.06-", owner: "陈兵勇", phone: "18616241024", unit: "中建三局科创公司", coord: [114.57, 30.68] },
+          { name: "钢丝绳厂", type: "厂房", city: "武汉市", loc: "湖北省武汉市", progress: 18, status: "规划对接", start: "—", owner: "—", phone: "—", unit: "中建三局科创公司", coord: [114.25, 30.51] },
+          { name: "楚能二期项目", type: "厂房", city: "武汉市", loc: "湖北省武汉市", progress: 15, status: "规划对接", start: "预计2026.09-", owner: "洪建", phone: "—", unit: "中建三局第一建设工程有限责任公司", coord: [114.26, 30.39] }
+        ],
+        "江苏省": [
+          { name: "胥江1号厂房项目", type: "厂房", city: "苏州市", loc: "江苏省苏州市", progress: 100, status: "应用结束", start: "2025.11-2025.12", owner: "郁亚凯", phone: "15213308453", unit: "中建三局第二建设工程有限责任公司", coord: [120.5, 31.23] },
+          { name: "汇川动力总部项目", type: "厂房", city: "苏州市", loc: "江苏省苏州市", progress: 100, status: "应用结束", start: "2025.11-2025.12", owner: "郁亚凯", phone: "15213308453", unit: "中建三局第二建设工程有限责任公司", coord: [120.6, 31.19] },
+          { name: "苏州丰隆项目", type: "房建", city: "苏州市", loc: "江苏省苏州市", progress: 100, status: "应用结束", start: "2025.11-2025.12", owner: "郁亚凯", phone: "15213308453", unit: "中建三局第二建设工程有限责任公司", coord: [120.64, 31.43] },
+          { name: "苏州圆融国际广场项目", type: "房建", city: "苏州市", loc: "江苏省苏州市", progress: 100, status: "应用结束", start: "2025.11-2025.12", owner: "陈金龙", phone: "17710743569", unit: "中建三局第二建设工程有限责任公司", coord: [120.74, 31.33] }
+        ],
+        "辽宁省": [
+          { name: "沈阳地铁10号线", type: "基建", city: "沈阳市", loc: "辽宁省沈阳市", progress: 18, status: "规划对接", start: "2026.07-", owner: "—", phone: "—", unit: "中建三局集团建设发展有限公司", coord: [123.47, 41.82] },
+          { name: "沈阳中心", type: "房建", city: "沈阳市", loc: "辽宁省沈阳市", progress: 15, status: "持续应用中", start: "2026.08-", owner: "—", phone: "—", unit: "中建三局集团有限公司工程总承包公司", coord: [123.43, 41.81] },
+          { name: "胖东来梦之城", type: "房建", city: "沈阳市", loc: "辽宁省沈阳市", progress: 15, status: "规划对接", start: "—", owner: "—", phone: "—", unit: "中建三局集团有限公司工程总承包公司", coord: [113.89, 34.04] }
+        ],
+        "山东省": [
+          { name: "济南地铁7号线", type: "基建", city: "济南市", loc: "山东省济南市", progress: 76, status: "持续应用中", start: "2025.11-", owner: "唐海波", phone: "18628830521", unit: "基础设施事业部（铁投公司）", coord: [117.12, 36.67] }
+        ],
+        "上海市": [
+          { name: "上海中船", type: "房建", city: "上海市", loc: "上海市", progress: 16, status: "规划对接", start: "预计2026.09-", owner: "盛威", phone: "13554259491", unit: "中建三局第一建设工程有限责任公司", coord: [121.49, 31.24] }
+        ],
+        "四川省": [
+          { name: "德阳体育馆", type: "公建", city: "德阳市", loc: "四川省德阳市", progress: 15, status: "规划对接", start: "—", owner: "—", phone: "—", unit: "中建三局第一建设工程有限责任公司", coord: [104.4, 31.13] }
+        ],
+        "天津市": [
+          { name: "天津117项目", type: "房建", city: "天津市", loc: "天津市", progress: 60, status: "持续应用中", start: "2026.02-", owner: "戴路", phone: "18872277366", unit: "中建三局集团有限公司工程总承包公司", coord: [117.09, 39.1] }
+        ],
+        "西藏自治区": [
+          { name: "长江壹号项目", type: "基建", city: "西藏自治区", loc: "西藏自治区", progress: 15, status: "规划对接", start: "—", owner: "薛德昊", phone: "17639853032", unit: "中建三局集团有限公司工程总承包公司", coord: [94.37, 29.61] }
+        ],
+        "浙江省": [
+          { name: "宁波奥体中心项目", type: "公建", city: "宁波市", loc: "浙江省宁波市", progress: 70, status: "持续应用中", start: "2026.01-", owner: "李洁琳", phone: "—", unit: "中建三局集团华东有限公司", coord: [121.53, 29.94] }
+        ],
+        "重庆市": [
+          { name: "重庆石船安置房", type: "房建", city: "重庆市", loc: "重庆市", progress: 15, status: "规划对接", start: "预计2026.09-", owner: "—", phone: "—", unit: "中建三局集团西南有限公司", coord: [106.81, 29.76] }
+        ]
+      }
+    };
+    /* === MOCK_DATA_END === */
+
+    const PROVINCE_ADCODE = {
+      "北京市": 110000, "天津市": 120000, "河北省": 130000, "山西省": 140000,
+      "内蒙古自治区": 150000, "辽宁省": 210000, "吉林省": 220000, "黑龙江省": 230000,
+      "上海市": 310000, "江苏省": 320000, "浙江省": 330000, "安徽省": 340000,
+      "福建省": 350000, "江西省": 360000, "山东省": 370000, "河南省": 410000,
+      "湖北省": 420000, "湖南省": 430000, "广东省": 440000, "广西壮族自治区": 450000,
+      "海南省": 460000, "重庆市": 500000, "四川省": 510000, "贵州省": 520000,
+      "云南省": 530000, "西藏自治区": 540000, "陕西省": 610000, "甘肃省": 620000,
+      "青海省": 630000, "宁夏回族自治区": 640000, "新疆维吾尔自治区": 650000,
+      "台湾省": 710000, "香港特别行政区": 810000, "澳门特别行政区": 820000
+    };
+
+    /* 省级完整 GeoJSON 原样保留；外轮廓仅取中国大陆最大多边形 */
+    function refineChinaGeo(geo) {
+      return geo;
+    }
+
+    function polygonBBox(poly) {
+      const ring = poly && poly[0];
+      if (!ring || !ring.length) return null;
+      let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
+      for (let i = 0; i < ring.length; i++) {
+        const lon = ring[i][0], lat = ring[i][1];
+        if (lon < minLon) minLon = lon;
+        if (lon > maxLon) maxLon = lon;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+      }
+      return {
+        minLon, maxLon, minLat, maxLat,
+        cx: (minLon + maxLon) / 2,
+        cy: (minLat + maxLat) / 2,
+        area: (maxLon - minLon) * (maxLat - minLat)
+      };
+    }
+
+    function isTaiwanIsland(b) {
+      return b.cx > 119 && b.cx < 123.2 && b.cy > 21.5 && b.cy < 26.2
+        && b.area > 0.8 && b.area < 40;
+    }
+
+    function isHainanIsland(b) {
+      return b.cx > 108 && b.cx < 111.8 && b.cy > 17.8 && b.cy < 20.8
+        && b.area > 0.5 && b.area < 25;
+    }
+
+    /* 外轮廓：中国大陆 + 海南岛 + 台湾岛（不含南海诸岛等） */
+    function extractMainlandOutline(geo) {
+      let mainland = null, mainlandArea = 0;
+      let hainan = null, hainanArea = 0;
+      let taiwan = null, taiwanArea = 0;
+      const features = (geo && geo.features) || [];
+      for (let fi = 0; fi < features.length; fi++) {
+        const g = features[fi].geometry;
+        if (!g) continue;
+        const polys = g.type === "Polygon" ? [g.coordinates]
+          : g.type === "MultiPolygon" ? g.coordinates
+          : [];
+        for (let i = 0; i < polys.length; i++) {
+          const b = polygonBBox(polys[i]);
+          if (!b) continue;
+          if (b.area > mainlandArea) {
+            mainlandArea = b.area;
+            mainland = polys[i];
+          }
+          if (isHainanIsland(b) && b.area > hainanArea) {
+            hainanArea = b.area;
+            hainan = polys[i];
+          }
+          if (isTaiwanIsland(b) && b.area > taiwanArea) {
+            taiwanArea = b.area;
+            taiwan = polys[i];
+          }
+        }
+      }
+      const kept = [mainland, hainan, taiwan].filter(Boolean);
+      if (!kept.length) return geo;
+      return {
+        type: "FeatureCollection",
+        features: [{
+          type: "Feature",
+          properties: { name: "中国轮廓", adcode: 100000 },
+          geometry: kept.length === 1
+            ? { type: "Polygon", coordinates: kept[0] }
+            : { type: "MultiPolygon", coordinates: kept }
+        }]
+      };
+    }
+
+    /**************************************************************************
+     * 背景粒子（缓慢流动）
+     **************************************************************************/
+    (function initParticles() {
+      const canvas = document.getElementById("particles");
+      const ctx = canvas.getContext("2d");
+      let w, h, dots, raf;
+
+      function resize() {
+        w = canvas.width = window.innerWidth;
+        h = canvas.height = window.innerHeight;
+        dots = Array.from({ length: Math.min(220, Math.floor(w * h / 9000)) }, () => ({
+          x: Math.random() * w,
+          y: Math.random() * h,
+          r: Math.random() * 2.2 + 0.6,
+          vx: (Math.random() - 0.5) * 0.28,
+          vy: (Math.random() - 0.5) * 0.22 - 0.06,
+          a: Math.random() * 0.55 + 0.25
+        }));
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, w, h);
+        for (let i = 0; i < dots.length; i++) {
+          const p = dots[i];
+          p.x += p.vx;
+          p.y += p.vy;
+          if (p.x < 0) p.x = w;
+          if (p.x > w) p.x = 0;
+          if (p.y < 0) p.y = h;
+          if (p.y > h) p.y = 0;
+          /* 外层柔光 */
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r * 3.2, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(94, 231, 255, ${p.a * 0.18})`;
+          ctx.fill();
+          /* 实心光点 */
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(180, 245, 255, ${p.a})`;
+          ctx.fill();
+          for (let j = i + 1; j < dots.length; j++) {
+            const q = dots[j];
+            const dx = p.x - q.x, dy = p.y - q.y;
+            const d = Math.hypot(dx, dy);
+            if (d < 120) {
+              ctx.beginPath();
+              ctx.moveTo(p.x, p.y);
+              ctx.lineTo(q.x, q.y);
+              ctx.strokeStyle = `rgba(94, 220, 255, ${0.22 * (1 - d / 120)})`;
+              ctx.lineWidth = 1;
+              ctx.stroke();
+            }
+          }
+        }
+        raf = requestAnimationFrame(draw);
+      }
+      resize();
+      draw();
+      window.addEventListener("resize", () => { cancelAnimationFrame(raf); resize(); draw(); });
+    })();
+
+    /**************************************************************************
+     * 时钟 / KPI 滚动
+     **************************************************************************/
+    function updateClock() {
+      const now = new Date();
+      const pad = n => String(n).padStart(2, "0");
+      const week = ["日", "一", "二", "三", "四", "五", "六"][now.getDay()];
+      const el = document.getElementById("metaClock");
+      if (!el) return;
+      el.textContent =
+        `${now.getFullYear()}/${pad(now.getMonth() + 1)}/${pad(now.getDate())} 周${week}  ` +
+        `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    function animateNumber(el, target, duration) {
+      const start = performance.now();
+      function frame(t) {
+        const p = Math.min(1, (t - start) / duration);
+        const eased = 1 - Math.pow(1 - p, 3);
+        el.textContent = Math.round(target * eased).toLocaleString("zh-CN");
+        if (p < 1) requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    }
+
+    function runKpiAnimation() {
+      document.querySelectorAll(".kpi-value").forEach((el, idx) => {
+        setTimeout(() => animateNumber(el, Number(el.dataset.target), 1400), idx * 90);
+      });
+    }
+
+    /**************************************************************************
+     * 项目清单列表 + 搜索 / 省份·阶段下拉筛选（互斥：选一侧会重置另一侧）
+     **************************************************************************/
+    let projectRegionFilter = "";
+    let projectStatusFilter = "";
+
+    function getAllProjects() {
+      const rows = [];
+      Object.entries(MOCK.cityProjects).forEach(([province, list]) => {
+        list.forEach(p => rows.push({ ...p, province }));
+      });
+      return rows;
+    }
+
+    function statusClass(status) {
+      if (status === "持续应用中") return "status-running";
+      if (status === "应用结束") return "status-done";
+      return "status-plan";
+    }
+
+    function formatProjectDate(start) {
+      if (!start || start === "—" || start === "/") return "应用日期待定";
+      return start;
+    }
+
+    function renderProjectList(keyword) {
+      const q = (keyword != null ? keyword : document.getElementById("projectSearch").value || "").trim().toLowerCase();
+      const region = projectRegionFilter;
+      const status = projectStatusFilter;
+      const rows = getAllProjects().filter(p => {
+        /* 省份 / 阶段互斥，同一时间只会有一个生效 */
+        if (region && p.province !== region) return false;
+        if (status && p.status !== status) return false;
+        if (!q) return true;
+        const hay = [p.name, p.loc, p.city, p.type, p.status, p.owner, p.unit, p.province].join(" ").toLowerCase();
+        return hay.includes(q);
+      });
+      const box = document.getElementById("projectList");
+      if (!rows.length) {
+        box.innerHTML = `<div class="project-empty">未找到匹配项目</div>`;
+        return;
+      }
+      box.innerHTML = rows.map((p, i) => `
+        <div class="project-card ${statusClass(p.status)}" data-idx="${i}">
+          <div class="project-card-top">
+            <div class="project-card-name">${p.name}</div>
+            <span class="project-card-status ${statusClass(p.status)}">${p.status || "—"}</span>
+          </div>
+          <div class="project-card-loc">${p.loc || p.city || "—"}</div>
+          <div class="project-card-date">${formatProjectDate(p.start)}</div>
+        </div>
+      `).join("");
+      box.querySelectorAll(".project-card").forEach((card, i) => {
+        card.addEventListener("click", () => showProjectModal(rows[i]));
+      });
+    }
+
+    function closeAllProjectDropdowns(except) {
+      document.querySelectorAll(".project-dd.is-open").forEach(dd => {
+        if (except && dd === except) return;
+        dd.classList.remove("is-open");
+        const btn = dd.querySelector(".project-dd-btn");
+        if (btn) btn.setAttribute("aria-expanded", "false");
+      });
+    }
+
+    function syncProjectDropdown(dd, value, label, count) {
+      const btn = dd.querySelector(".project-dd-btn");
+      const labelEl = dd.querySelector(".project-dd-label");
+      const countEl = dd.querySelector(".project-dd-count");
+      labelEl.textContent = label;
+      countEl.textContent = count != null ? String(count) : "";
+      dd.querySelectorAll(".project-dd-item").forEach(item => {
+        item.classList.toggle("is-active", (item.dataset.value || "") === value);
+      });
+      btn.setAttribute("aria-expanded", "false");
+      dd.classList.remove("is-open");
+    }
+
+    function buildDropdownItems(menu, items, allLabel) {
+      const total = items.reduce((s, it) => s + it.count, 0);
+      const rows = [{ value: "", label: allLabel, count: total }, ...items];
+      menu.innerHTML = rows.map(it => `
+        <button type="button" class="project-dd-item" role="option" data-value="${it.value}" data-label="${it.label}" data-count="${it.count}">
+          <span class="project-dd-item-label">${it.label}</span>
+          <span class="project-dd-item-count">${it.count}</span>
+        </button>
+      `).join("");
+      return total;
+    }
+
+    function initProjectFilters() {
+      const regionDd = document.getElementById("filterRegionDd");
+      const statusDd = document.getElementById("filterStatusDd");
+      const all = getAllProjects();
+
+      /* 仅省 / 直辖市层级（含北京市、上海市等） */
+      const provinceCount = {};
+      all.forEach(p => {
+        if (!p.province) return;
+        provinceCount[p.province] = (provinceCount[p.province] || 0) + 1;
+      });
+      const provinces = Object.entries(provinceCount)
+        .map(([name, count]) => ({ value: name, label: name, count }))
+        .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "zh"));
+
+      const statusOrder = ["规划对接", "持续应用中", "应用结束"];
+      const statusCount = {};
+      all.forEach(p => {
+        if (!p.status) return;
+        statusCount[p.status] = (statusCount[p.status] || 0) + 1;
+      });
+      const statuses = [
+        ...statusOrder.filter(s => statusCount[s]).map(s => ({ value: s, label: s, count: statusCount[s] })),
+        ...Object.keys(statusCount)
+          .filter(s => !statusOrder.includes(s))
+          .sort((a, b) => a.localeCompare(b, "zh"))
+          .map(s => ({ value: s, label: s, count: statusCount[s] }))
+      ];
+
+      const regionTotal = buildDropdownItems(regionDd.querySelector(".project-dd-menu"), provinces, "全部省份");
+      const statusTotal = buildDropdownItems(statusDd.querySelector(".project-dd-menu"), statuses, "全部阶段");
+      syncProjectDropdown(regionDd, "", "全部省份", regionTotal);
+      syncProjectDropdown(statusDd, "", "全部阶段", statusTotal);
+
+      function wireDropdown(dd, onPick) {
+        const btn = dd.querySelector(".project-dd-btn");
+        const menu = dd.querySelector(".project-dd-menu");
+        btn.addEventListener("click", e => {
+          e.stopPropagation();
+          const open = !dd.classList.contains("is-open");
+          closeAllProjectDropdowns();
+          if (open) {
+            dd.classList.add("is-open");
+            btn.setAttribute("aria-expanded", "true");
+          }
+        });
+        menu.addEventListener("click", e => {
+          const item = e.target.closest(".project-dd-item");
+          if (!item) return;
+          e.stopPropagation();
+          const value = item.dataset.value || "";
+          const label = item.dataset.label || "";
+          const count = Number(item.dataset.count || 0);
+          syncProjectDropdown(dd, value, label, count);
+          onPick(value);
+        });
+      }
+
+      wireDropdown(regionDd, value => {
+        projectRegionFilter = value;
+        if (value) {
+          projectStatusFilter = "";
+          syncProjectDropdown(statusDd, "", "全部阶段", statusTotal);
+        }
+        renderProjectList();
+      });
+      wireDropdown(statusDd, value => {
+        projectStatusFilter = value;
+        if (value) {
+          projectRegionFilter = "";
+          syncProjectDropdown(regionDd, "", "全部省份", regionTotal);
+        }
+        renderProjectList();
+      });
+
+      document.addEventListener("click", () => closeAllProjectDropdowns());
+    }
+
+    document.getElementById("projectSearch").addEventListener("input", e => {
+      renderProjectList(e.target.value);
+    });
+    initProjectFilters();
+
+    /**************************************************************************
+     * Charts
+     **************************************************************************/
+    const charts = {};
+    /** 大屏 CSS scale，需同步修正 ECharts 指针坐标 */
+    let SCREEN_SCALE = 1;
+    let mapDrillLock = false;
+    let mapPulsePaused = false;
+
+    function getDomScale(el) {
+      if (!el) return { sx: SCREEN_SCALE || 1, sy: SCREEN_SCALE || 1 };
+      const rect = el.getBoundingClientRect();
+      const w = el.offsetWidth || el.clientWidth || 1;
+      const h = el.offsetHeight || el.clientHeight || 1;
+      return {
+        sx: rect.width / w || 1,
+        sy: rect.height / h || 1,
+        rect
+      };
+    }
+
+    function applyChartPointerScale(chart) {
+      if (!chart) return;
+      const zr = chart.getZr();
+      if (!zr || !zr.handler) return;
+      if (zr.__cssScalePatched) return;
+      zr.__cssScalePatched = true;
+
+      const root = zr.painter && zr.painter.getViewportRoot && zr.painter.getViewportRoot();
+      const handler = zr.handler;
+      const origDispatch = handler.dispatch.bind(handler);
+      /* 用 clientX/Y 按真实缩放重算 zr 坐标，避免 transform:scale 导致点不准 */
+      handler.dispatch = function (type, event) {
+        if (event && typeof event.clientX === "number" && root) {
+          const { sx, sy, rect } = getDomScale(root);
+          if (sx > 0.01 && sy > 0.01) {
+            event.zrX = (event.clientX - rect.left) / sx;
+            event.zrY = (event.clientY - rect.top) / sy;
+          }
+        }
+        return origDispatch(type, event);
+      };
+    }
+
+    function syncAllChartPointerScale() {
+      Object.values(charts).forEach(applyChartPointerScale);
+    }
+
+    const ICE = {
+      text: "#7eb6c9",
+      line: "rgba(94,231,255,0.2)",
+      neon: "#5ee7ff",
+      bright: "#9af6ff"
+    };
+    /* 与 .kpi-label / CSS 变量保持一致，避免 DOM 与 canvas 字体不一致 */
+    const CHART_NAME_LABEL = {
+      color: "#7eb6c9",
+      fontSize: 15,
+      fontWeight: 600,
+      fontFamily: "\"Exo 2\", \"Noto Sans SC\", sans-serif"
+    };
+
+    function initStatusChart() {
+      const colors = {
+        "规划对接": "#22c55e",
+        "持续应用中": "#3dd6ff",
+        "应用结束": "#94a3b8"
+      };
+      const order = ["规划对接", "持续应用中", "应用结束"];
+      const statusData = order.map(name => ({
+        name,
+        value: (MOCK.progressCats.find(d => d.name === name) || {}).value || 0,
+        itemStyle: { color: colors[name] }
+      }));
+      const total = statusData.reduce((s, d) => s + d.value, 0) || 1;
+      const totalEl = document.getElementById("statusTotalNum");
+      if (totalEl) totalEl.textContent = String(total);
+
+      const legendEl = document.getElementById("statusLegend");
+      legendEl.innerHTML = statusData.map(d => {
+        const pct = Math.round((d.value / total) * 100);
+        return `<li class="status-legend-item">
+          <i class="sl-dot" style="background:${colors[d.name]};color:${colors[d.name]}" aria-hidden="true"></i>
+          <span class="sl-name">${d.name}</span>
+          <span class="sl-count">${d.value}个</span>
+          <span class="sl-pct">${pct}%</span>
+        </li>`;
+      }).join("");
+
+      charts.status = echarts.init(document.getElementById("statusChart"));
+      applyChartPointerScale(charts.status);
+      charts.status.setOption({
+        tooltip: {
+          trigger: "item",
+          backgroundColor: "rgba(4,20,40,0.92)",
+          borderColor: "#5ee7ff",
+          textStyle: { color: "#e8f8ff", fontSize: 13 },
+          formatter: "{b}<br/>数量：{c} 个<br/>占比：{d}%"
+        },
+        series: [
+          {
+            name: "项目阶段",
+            type: "pie",
+            radius: ["62%", "86%"],
+            center: ["50%", "50%"],
+            avoidLabelOverlap: true,
+            label: { show: false },
+            labelLine: { show: false },
+            itemStyle: {
+              borderColor: "rgba(3,10,20,0.9)",
+              borderWidth: 2,
+              shadowBlur: 10,
+              shadowColor: "rgba(0,240,255,0.35)"
+            },
+            data: statusData
+          },
+          {
+            type: "pie",
+            radius: ["92%", "95%"],
+            center: ["50%", "50%"],
+            silent: true,
+            label: { show: false },
+            data: [{ value: 1 }],
+            itemStyle: {
+              color: "rgba(94,231,255,0.35)",
+              shadowBlur: 8,
+              shadowColor: "#00f0ff"
+            }
+          }
+        ]
+      });
+      requestAnimationFrame(() => charts.status && charts.status.resize());
+    }
+
+    function initTypeChart() {
+      charts.type = echarts.init(document.getElementById("typeChart"));
+      applyChartPointerScale(charts.type);
+      /* category 轴自下而上：升序排列后数量多的在顶部 */
+      const typeSorted = [...MOCK.bizTypes].sort((a, b) => a.value - b.value);
+      charts.type.setOption({
+        tooltip: {
+          trigger: "axis",
+          axisPointer: { type: "shadow" },
+          backgroundColor: "rgba(4,20,40,0.92)",
+          borderColor: "#5ee7ff",
+          textStyle: { color: "#e8f8ff", fontSize: 14 }
+        },
+        grid: { left: 8, right: 28, top: 16, bottom: 4, containLabel: true },
+        xAxis: {
+          type: "value",
+          axisLabel: { color: ICE.text, fontSize: 11 },
+          splitLine: { lineStyle: { color: "rgba(94,231,255,0.08)" } }
+        },
+        yAxis: {
+          type: "category",
+          data: typeSorted.map(d => d.name),
+          axisLabel: {
+            ...CHART_NAME_LABEL,
+            fontSize: 13,
+            margin: 10,
+            lineHeight: 16
+          },
+          axisLine: { lineStyle: { color: ICE.line } },
+          axisTick: { show: false }
+        },
+        series: [{
+          name: "项目数",
+          type: "bar",
+          barWidth: 20,
+          data: typeSorted.map(d => d.value),
+          label: {
+            show: true,
+            position: "right",
+            color: "#9af6ff",
+            fontSize: 12,
+            fontWeight: 700,
+            distance: 6
+          },
+          itemStyle: {
+            borderRadius: [0, 4, 4, 0],
+            color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+              { offset: 0, color: "#0a6a9a" },
+              { offset: 1, color: "#5ee7ff" }
+            ]),
+            shadowBlur: 8,
+            shadowColor: "rgba(0,240,255,0.3)"
+          }
+        }]
+      });
+    }
+
+    let unitCarouselTimer = null;
+    let unitCarouselPage = 0;
+    let unitCarouselUnits = [];
+
+    function renderUnitCarouselPage(page) {
+      const legendEl = document.getElementById("unitLegend");
+      const dotsEl = document.getElementById("unitCarouselDots");
+      if (!legendEl) return;
+      const pageSize = 3;
+      const totalPages = Math.max(1, Math.ceil(unitCarouselUnits.length / pageSize));
+      unitCarouselPage = ((page % totalPages) + totalPages) % totalPages;
+      const start = unitCarouselPage * pageSize;
+      const slice = unitCarouselUnits.slice(start, start + pageSize);
+      const unitProjectSum = Math.max(
+        1,
+        unitCarouselUnits.reduce((s, u) => s + (Number(u.value) || 0), 0)
+      );
+
+      legendEl.innerHTML = slice.map(u => {
+        const label = u.full || u.name || "";
+        const tip = label ? ` title="${label}"` : "";
+        const pct = Math.round((Number(u.value) || 0) / unitProjectSum * 100);
+        return `<li class="status-legend-item"${tip}>
+          <i class="sl-dot" style="background:#3dd6ff;color:#3dd6ff" aria-hidden="true"></i>
+          <span class="sl-name">${label}</span>
+          <span class="sl-count">${u.value}项</span>
+          <span class="sl-pct">${pct}%</span>
+        </li>`;
+      }).join("");
+
+      if (dotsEl) {
+        if (totalPages <= 1) {
+          dotsEl.innerHTML = "";
+        } else {
+          dotsEl.innerHTML = Array.from({ length: totalPages }, (_, i) =>
+            `<button type="button" role="tab" aria-label="第${i + 1}页"${i === unitCarouselPage ? ' class="is-active" aria-selected="true"' : ' aria-selected="false"'} data-page="${i}"></button>`
+          ).join("");
+        }
+      }
+    }
+
+    function startUnitCarousel() {
+      if (unitCarouselTimer) clearInterval(unitCarouselTimer);
+      const pageSize = 3;
+      const totalPages = Math.ceil(unitCarouselUnits.length / pageSize);
+      if (totalPages <= 1) return;
+      unitCarouselTimer = setInterval(() => {
+        renderUnitCarouselPage(unitCarouselPage + 1);
+      }, 3800);
+    }
+
+    function initUnitDistChart() {
+      const cover = MOCK.unitCover || { covered: 0, total: 23, units: [] };
+      const covered = Number(cover.covered) || 0;
+      const total = Number(cover.total) || 23;
+      const rest = Math.max(0, total - covered);
+      const pct = total > 0 ? Math.round((covered / total) * 100) : 0;
+      unitCarouselUnits = Array.isArray(cover.units) ? cover.units.slice() : [];
+
+      const pctEl = document.getElementById("unitCoverPct");
+      const fracEl = document.getElementById("unitCoverFrac");
+      const coveredEl = document.getElementById("unitCoveredNum");
+      if (pctEl) pctEl.textContent = pct + "%";
+      if (fracEl) fracEl.textContent = covered + "/" + total;
+      if (coveredEl) coveredEl.textContent = String(covered);
+
+      renderUnitCarouselPage(0);
+      startUnitCarousel();
+
+      const carouselEl = document.getElementById("unitCarousel");
+      if (carouselEl && !carouselEl.__unitCarouselBound) {
+        carouselEl.__unitCarouselBound = true;
+        carouselEl.addEventListener("mouseenter", () => {
+          if (unitCarouselTimer) clearInterval(unitCarouselTimer);
+          unitCarouselTimer = null;
+        });
+        carouselEl.addEventListener("mouseleave", () => startUnitCarousel());
+        const dotsEl = document.getElementById("unitCarouselDots");
+        if (dotsEl) {
+          dotsEl.addEventListener("click", e => {
+            const btn = e.target.closest("button[data-page]");
+            if (!btn) return;
+            renderUnitCarouselPage(Number(btn.getAttribute("data-page")) || 0);
+            startUnitCarousel();
+          });
+        }
+      }
+
+      charts.unitCover = echarts.init(document.getElementById("unitCoverChart"));
+      applyChartPointerScale(charts.unitCover);
+      charts.unitCover.setOption({
+        tooltip: {
+          trigger: "item",
+          backgroundColor: "rgba(4,20,40,0.92)",
+          borderColor: "#5ee7ff",
+          textStyle: { color: "#e8f8ff", fontSize: 13 },
+          formatter: p => `${p.name}<br/>${p.value} 家 · ${p.percent}%`
+        },
+        series: [
+          {
+            name: "二级单位覆盖",
+            type: "pie",
+            radius: ["62%", "86%"],
+            center: ["50%", "50%"],
+            avoidLabelOverlap: true,
+            label: { show: false },
+            labelLine: { show: false },
+            itemStyle: {
+              borderColor: "rgba(3,10,20,0.9)",
+              borderWidth: 2,
+              shadowBlur: 10,
+              shadowColor: "rgba(0,240,255,0.35)"
+            },
+            data: [
+              { name: "已覆盖", value: covered, itemStyle: { color: "#3dd6ff" } },
+              { name: "未覆盖", value: rest, itemStyle: { color: "rgba(148, 163, 184, 0.45)" } }
+            ]
+          },
+          {
+            type: "pie",
+            radius: ["92%", "95%"],
+            center: ["50%", "50%"],
+            silent: true,
+            label: { show: false },
+            data: [{ value: 1 }],
+            itemStyle: {
+              color: "rgba(94,231,255,0.35)",
+              shadowBlur: 8,
+              shadowColor: "#00f0ff"
+            }
+          }
+        ]
+      });
+      requestAnimationFrame(() => charts.unitCover && charts.unitCover.resize());
+    }
+
+    /**************************************************************************
+     * 地图：暗色底 + 荧光描边 + 全国项目数气泡
+     **************************************************************************/
+    const mapState = {
+      level: "china",
+      province: null,
+      city: null,
+      mapName: "china",
+      hasWorld: false
+    };
+    const GEO_CDN = "https://geo.datav.aliyun.com/areas_v3/bound";
+    /* 仅开放再下钻的城市 */
+    const CITY_ADCODE = { "武汉市": 420100 };
+    const CITY_DRILL_PARENT = { "武汉市": "湖北省" };
+    let borderPulse = 0;
+    let borderTimer = null;
+
+    async function fetchGeo(adcode, full) {
+      const res = await fetch(`${GEO_CDN}/${adcode}${full ? "_full" : ""}.json`);
+      if (!res.ok) throw new Error("地图加载失败: " + adcode);
+      return res.json();
+    }
+
+    async function fetchWorldGeo() {
+      const urls = [
+        "https://cdn.jsdelivr.net/npm/echarts@4.9.0/map/json/world.json",
+        "https://fastly.jsdelivr.net/npm/echarts@4.9.0/map/json/world.json",
+        "https://unpkg.com/echarts@4.9.0/map/json/world.json"
+      ];
+      let lastErr;
+      for (let i = 0; i < urls.length; i++) {
+        try {
+          const res = await fetch(urls[i]);
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          return await res.json();
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      throw lastErr || new Error("世界地图加载失败");
+    }
+
+    function getNationalPillars() {
+      return Object.entries(MOCK.provinceProjects)
+        .filter(([name, v]) => v > 0 && MOCK.provinceCoords[name])
+        .map(([name, value]) => ({
+          name,
+          value: [...MOCK.provinceCoords[name], value],
+          projectCount: value,
+          province: name,
+          project: (MOCK.cityProjects[name] || [])[0] || null,
+          kind: "province"
+        }));
+    }
+
+    /* 全国视图：省份项目数量气泡 */
+    function provinceCountSeries(data) {
+      return [
+        {
+          name: "省份项目数",
+          type: "scatter",
+          coordinateSystem: "geo",
+          geoIndex: 0,
+          zlevel: 5,
+          data,
+          symbol: "circle",
+          /* 数量越大圈越大，但用开方+上限，避免湖北 15 等过大 */
+          symbolSize: val => Math.min(44, Math.max(26, 18 + Math.sqrt(val[2]) * 6.5)),
+          animation: false,
+          animationDuration: 0,
+          animationDurationUpdate: 0,
+          label: {
+            show: true,
+            formatter: p => (p.data && p.data.projectCount != null ? p.data.projectCount : ""),
+            color: "#ffffff",
+            fontSize: 17,
+            fontWeight: 800,
+            textShadowColor: "rgba(0, 40, 80, 0.65)",
+            textShadowBlur: 4
+          },
+          itemStyle: {
+            color: "#1a7fb8",
+            borderColor: "#9af6ff",
+            borderWidth: 2,
+            shadowBlur: 12,
+            shadowColor: "rgba(0, 240, 255, 0.55)",
+            opacity: 1
+          },
+          emphasis: {
+            scale: true,
+            itemStyle: {
+              color: "#2a9fd4",
+              borderColor: "#ffffff",
+              shadowBlur: 18
+            }
+          }
+        }
+      ];
+    }
+
+    /* 省级/市级：项目点位（无光柱） */
+    function getProvinceProjectPoints(provinceName, cityName) {
+      return (MOCK.cityProjects[provinceName] || [])
+        .filter(p => !cityName || p.city === cityName || (p.loc && p.loc.indexOf(cityName) !== -1))
+        .filter(p => Array.isArray(p.coord) && p.coord.length >= 2)
+        .map(p => ({
+          name: p.name,
+          value: [p.coord[0], p.coord[1], Math.max(8, (p.progress || 0) / 3)],
+          project: p,
+          kind: "project"
+        }));
+    }
+
+    function provinceProjectPointSeries(data) {
+      if (!data.length) return [];
+      return [
+        {
+          name: "项目点位",
+          type: "scatter",
+          coordinateSystem: "geo",
+          geoIndex: 0,
+          zlevel: 5,
+          data,
+          symbol: "circle",
+          symbolSize: 16,
+          animation: false,
+          label: {
+            show: true,
+            formatter: "{b}",
+            position: "top",
+            distance: 8,
+            color: "#ffffff",
+            fontSize: 15,
+            fontWeight: 800,
+            textBorderColor: "rgba(0, 40, 70, 0.85)",
+            textBorderWidth: 2,
+            textShadowColor: "rgba(0, 240, 255, 0.75)",
+            textShadowBlur: 8
+          },
+          itemStyle: {
+            color: "#1a7fb8",
+            borderColor: "#9af6ff",
+            borderWidth: 2,
+            shadowBlur: 12,
+            shadowColor: "rgba(0, 240, 255, 0.55)"
+          },
+          emphasis: {
+            scale: true,
+            label: {
+              color: "#9af6ff",
+              fontSize: 16,
+              fontWeight: 800
+            },
+            itemStyle: {
+              color: "#2a9fd4",
+              borderColor: "#ffffff",
+              shadowBlur: 18
+            }
+          }
+        }
+      ];
+    }
+
+    function hasProvinceProjects(name) {
+      return (MOCK.provinceProjects[name] || 0) > 0 || !!(MOCK.cityProjects[name] && MOCK.cityProjects[name].length);
+    }
+
+    function buildProvinceRegionStyles() {
+      return Object.keys(PROVINCE_ADCODE).map(name => {
+        const has = hasProvinceProjects(name);
+        const count = MOCK.provinceProjects[name] || 0;
+        if (has) {
+          /* 有项目：整省可点下钻（底图弱化，突出气泡） */
+          return {
+            name,
+            value: count,
+            kind: "province",
+            province: name,
+            projectCount: count,
+            itemStyle: {
+              areaColor: "rgba(16, 58, 88, 0.62)",
+              borderColor: "rgba(94, 231, 255, 0.48)",
+              borderWidth: 1.15,
+              shadowBlur: 4,
+              shadowColor: "rgba(0, 230, 255, 0.2)",
+              cursor: "pointer"
+            },
+            label: { color: "rgba(170, 220, 235, 0.7)", fontWeight: 600 },
+            emphasis: {
+              itemStyle: {
+                areaColor: "rgba(22, 72, 105, 0.78)",
+                borderColor: "rgba(154, 246, 255, 0.65)",
+                borderWidth: 1.35,
+                shadowBlur: 6,
+                shadowColor: "rgba(0, 240, 255, 0.28)"
+              },
+              label: { color: "rgba(210, 240, 250, 0.85)", fontWeight: 600 }
+            },
+            silent: false
+          };
+        }
+        /* 无项目：弱化底色，禁止点击 */
+        return {
+          name,
+          value: 0,
+          kind: "province",
+          province: name,
+          projectCount: 0,
+          itemStyle: {
+            borderColor: "rgba(94, 231, 255, 0.28)",
+            borderWidth: 0.75
+          },
+          label: { color: "rgba(126, 182, 201, 0.55)", fontWeight: 400 },
+          emphasis: { disabled: true },
+          select: { disabled: true },
+          silent: true
+        };
+      });
+    }
+
+    function countCityProjects(provinceName, cityName) {
+      return (MOCK.cityProjects[provinceName] || []).filter(p =>
+        p.city === cityName || (p.loc && p.loc.indexOf(cityName) !== -1)
+      ).length;
+    }
+
+    function canDrillCity(provinceName, cityName) {
+      return CITY_DRILL_PARENT[cityName] === provinceName && !!CITY_ADCODE[cityName];
+    }
+
+    function buildCityRegionStyles(mapName, provinceName) {
+      const packed = echarts.getMap(mapName);
+      const geoJSON = packed && (packed.geoJSON || packed.geoJson || packed);
+      const features = (geoJSON && geoJSON.features) || [];
+      return features.map(f => {
+        const name = (f.properties && (f.properties.name || f.properties.NAME)) || "";
+        if (!name) return null;
+        if (canDrillCity(provinceName, name)) {
+          const count = countCityProjects(provinceName, name);
+          return {
+            name,
+            value: count,
+            kind: "city",
+            city: name,
+            province: provinceName,
+            projectCount: count,
+            itemStyle: {
+              areaColor: "rgba(16, 58, 88, 0.62)",
+              borderColor: "rgba(94, 231, 255, 0.48)",
+              borderWidth: 1.15,
+              shadowBlur: 4,
+              shadowColor: "rgba(0, 230, 255, 0.2)",
+              cursor: "pointer"
+            },
+            label: { color: "rgba(170, 220, 235, 0.7)", fontWeight: 600 },
+            emphasis: {
+              itemStyle: {
+                areaColor: "rgba(22, 72, 105, 0.78)",
+                borderColor: "rgba(154, 246, 255, 0.65)",
+                borderWidth: 1.35,
+                shadowBlur: 6,
+                shadowColor: "rgba(0, 240, 255, 0.28)"
+              },
+              label: { color: "rgba(210, 240, 250, 0.85)", fontWeight: 600 }
+            },
+            silent: false
+          };
+        }
+        return {
+          name,
+          value: 0,
+          kind: "city",
+          city: name,
+          province: provinceName,
+          projectCount: 0,
+          itemStyle: {
+            areaColor: "transparent",
+            borderColor: "rgba(94, 231, 255, 0.28)",
+            borderWidth: 0.75
+          },
+          label: { color: "rgba(126, 182, 201, 0.55)", fontWeight: 400 },
+          emphasis: { disabled: true },
+          select: { disabled: true },
+          silent: true
+        };
+      }).filter(Boolean);
+    }
+
+    function getMapOption(mapName) {
+      const level = mapState.level;
+      const isChina = level === "china";
+      const isCity = level === "city";
+      const allowCityDrill = level === "province" && mapState.province === "湖北省";
+      const pointData = isChina ? getNationalPillars() : [];
+      const projectPoints = !isChina
+        ? getProvinceProjectPoints(
+            mapState.province,
+            isCity ? mapState.city : null
+          )
+        : [];
+
+      const outlineW = 2.8 + Math.sin(borderPulse) * 0.3;
+      const outlineGlow = 12 + Math.sin(borderPulse) * 4;
+      const cityOutlineW = 2.1 + Math.sin(borderPulse) * 0.2;
+      const cityOutlineGlow = 7 + Math.sin(borderPulse) * 2.5;
+      const regionData = isChina ? buildProvinceRegionStyles() : [];
+      const cityRegionData = allowCityDrill
+        ? buildCityRegionStyles(mapName, mapState.province)
+        : [];
+
+      /* 全国/省级底图略弱化，突出项目气泡/点位 */
+      const subMapItemStyle = {
+        areaColor: {
+          type: "radial",
+          x: 0.5, y: 0.5, r: 0.8,
+          colorStops: [
+            { offset: 0, color: "rgba(7, 26, 44, 0.9)" },
+            { offset: 1, color: "rgba(3, 12, 24, 0.95)" }
+          ]
+        },
+        borderColor: "rgba(94, 231, 255, 0.38)",
+        borderWidth: 0.95,
+        shadowBlur: 4,
+        shadowColor: "rgba(0, 240, 255, 0.16)"
+      };
+      const subOutlineStyle = {
+        areaColor: "transparent",
+        borderColor: "rgba(122, 223, 255, 0.58)",
+        borderWidth: outlineW,
+        shadowBlur: outlineGlow,
+        shadowColor: `rgba(0, 240, 255, ${0.32 + Math.sin(borderPulse) * 0.08})`
+      };
+      const subLabelStyle = {
+        show: true,
+        color: "rgba(126, 182, 201, 0.58)",
+        fontSize: 12,
+        fontWeight: 500,
+        textShadowBlur: 2,
+        textShadowColor: "rgba(0, 40, 70, 0.45)"
+      };
+      const subEmphasis = {
+        disabled: false,
+        label: {
+          color: "rgba(170, 220, 235, 0.78)",
+          fontWeight: 600
+        },
+        itemStyle: {
+          areaColor: "rgba(14, 48, 75, 0.9)",
+          borderColor: "rgba(94, 231, 255, 0.5)",
+          borderWidth: 1.2,
+          shadowBlur: 6,
+          shadowColor: "rgba(0, 240, 255, 0.22)"
+        }
+      };
+
+      /* 武汉市：再弱一档，突出项目点位与名称 */
+      const cityMapItemStyle = {
+        areaColor: {
+          type: "radial",
+          x: 0.5, y: 0.5, r: 0.8,
+          colorStops: [
+            { offset: 0, color: "rgba(5, 20, 34, 0.88)" },
+            { offset: 1, color: "rgba(3, 12, 24, 0.94)" }
+          ]
+        },
+        borderColor: "rgba(94, 231, 255, 0.22)",
+        borderWidth: 0.65,
+        shadowBlur: 0,
+        shadowColor: "transparent"
+      };
+      const cityOutlineStyle = {
+        areaColor: "transparent",
+        borderColor: "rgba(122, 223, 255, 0.4)",
+        borderWidth: cityOutlineW,
+        shadowBlur: cityOutlineGlow,
+        shadowColor: `rgba(0, 240, 255, ${0.2 + Math.sin(borderPulse) * 0.05})`
+      };
+      const cityLabelStyle = {
+        show: true,
+        color: "rgba(126, 182, 201, 0.36)",
+        fontSize: 11,
+        fontWeight: 400,
+        textShadowBlur: 0,
+        textShadowColor: "transparent"
+      };
+      const cityEmphasis = {
+        disabled: false,
+        label: {
+          color: "rgba(126, 182, 201, 0.5)",
+          fontWeight: 500
+        },
+        itemStyle: {
+          areaColor: "rgba(10, 36, 56, 0.9)",
+          borderColor: "rgba(94, 231, 255, 0.32)",
+          borderWidth: 0.9,
+          shadowBlur: 0
+        }
+      };
+
+      /* 全国：用独立 map 系列承接整省热区（勿挂 geoIndex，否则只有散点可点） */
+      const chinaLayout = {
+        roam: false,
+        aspectScale: 0.85,
+        layoutCenter: ["50%", "52%"],
+        layoutSize: "110%",
+        boundingCoords: [
+          [73.0, 17.5],
+          [135.5, 53.8]
+        ]
+      };
+
+      const subLayout = {
+        roam: false,
+        aspectScale: 0.85,
+        layoutCenter: ["50%", "50%"],
+        layoutSize: "100%",
+        zoom: 1.12
+      };
+
+      /* 武汉市底图：相对省级再放大一档 */
+      const cityLayout = {
+        roam: false,
+        aspectScale: 0.85,
+        layoutCenter: ["50%", "50%"],
+        layoutSize: "118%",
+        zoom: 1.38
+      };
+      const activeSubLayout = isCity ? cityLayout : subLayout;
+
+      let series;
+      if (isChina) {
+        series = [
+          {
+            name: "区域",
+            type: "map",
+            map: mapName,
+            zlevel: 2,
+            ...chinaLayout,
+            data: regionData,
+            silent: false,
+            selectedMode: false,
+            label: subLabelStyle,
+            itemStyle: subMapItemStyle,
+            emphasis: subEmphasis
+          },
+          ...provinceCountSeries(pointData)
+        ];
+        const WUHAN = MOCK.provinceCoords["湖北省"] || [114.31, 30.52];
+        const targets = pointData.filter(d => d.province !== "湖北省");
+        if (targets.length) {
+          series.push({
+            id: "wuhan-lines",
+            name: "粒子流",
+            type: "lines",
+            coordinateSystem: "geo",
+            geoIndex: 0,
+            zlevel: 3,
+            animation: false,
+            animationDurationUpdate: 0,
+            effect: {
+              show: true,
+              period: 4,
+              trailLength: 0.4,
+              symbol: "arrow",
+              symbolSize: 5,
+              color: "#5ee7ff"
+            },
+            lineStyle: {
+              color: "rgba(94,231,255,0.18)",
+              width: 1,
+              curveness: 0.28
+            },
+            data: targets.map(d => ({
+              coords: [[WUHAN[0], WUHAN[1]], [d.value[0], d.value[1]]]
+            })),
+            silent: true
+          });
+        }
+      } else if (allowCityDrill) {
+        series = [
+          {
+            name: "区域",
+            type: "map",
+            map: mapName,
+            zlevel: 2,
+            ...subLayout,
+            data: cityRegionData,
+            silent: false,
+            selectedMode: false,
+            label: subLabelStyle,
+            itemStyle: subMapItemStyle,
+            emphasis: subEmphasis
+          },
+          ...provinceProjectPointSeries(projectPoints)
+        ];
+      } else {
+        series = [
+          {
+            name: "区域",
+            type: "map",
+            map: mapName,
+            geoIndex: 0,
+            data: [],
+            silent: true,
+            selectedMode: false,
+            itemStyle: { areaColor: "transparent", borderColor: "transparent" },
+            emphasis: { disabled: true }
+          },
+          ...provinceProjectPointSeries(projectPoints)
+        ];
+      }
+
+      let geoOpt;
+      if (isChina) {
+        geoOpt = [
+          {
+            map: mapName,
+            zlevel: 1,
+            show: false,
+            silent: true,
+            ...chinaLayout
+          },
+          {
+            map: "chinaOutline",
+            zlevel: 1,
+            ...chinaLayout,
+            silent: true,
+            label: { show: false },
+            itemStyle: subOutlineStyle,
+            emphasis: { disabled: true }
+          }
+        ];
+        if (mapState.hasWorld) {
+          geoOpt.push({
+            map: "world",
+            zlevel: 0,
+            ...chinaLayout,
+            silent: true,
+            label: { show: false },
+            itemStyle: {
+              areaColor: "rgba(8, 28, 48, 0.72)",
+              borderColor: "rgba(80, 140, 180, 0.32)",
+              borderWidth: 0.7,
+              shadowBlur: 0
+            },
+            emphasis: { disabled: true }
+          });
+        }
+      } else if (allowCityDrill) {
+        geoOpt = [
+          {
+            map: mapName,
+            show: false,
+            silent: true,
+            zlevel: 1,
+            ...subLayout
+          },
+          {
+            map: mapName + "_outline",
+            zlevel: 1,
+            ...subLayout,
+            silent: true,
+            label: { show: false },
+            itemStyle: subOutlineStyle,
+            emphasis: { disabled: true }
+          }
+        ];
+      } else {
+        geoOpt = [
+          {
+            map: mapName,
+            zlevel: 2,
+            ...activeSubLayout,
+            label: isCity ? cityLabelStyle : subLabelStyle,
+            itemStyle: isCity ? cityMapItemStyle : subMapItemStyle,
+            emphasis: isCity ? cityEmphasis : subEmphasis
+          },
+          {
+            map: mapName + "_outline",
+            zlevel: 1,
+            ...activeSubLayout,
+            silent: true,
+            label: { show: false },
+            itemStyle: isCity ? cityOutlineStyle : subOutlineStyle,
+            emphasis: { disabled: true }
+          }
+        ];
+      }
+
+      return {
+        backgroundColor: "transparent",
+        animation: false,
+        animationDuration: 0,
+        animationDurationUpdate: 0,
+        tooltip: {
+          trigger: "item",
+          backgroundColor: "rgba(4,18,36,0.94)",
+          borderColor: "#5ee7ff",
+          textStyle: { color: "#e8f8ff" },
+          formatter: params => {
+            const d = params.data;
+            if (d && d.kind === "city") {
+              if (!canDrillCity(d.province, d.city || d.name)) {
+                return `<b style="color:#7eb6c9">${d.name}</b><br/><span style="color:#6a8a9e">暂不支持下钻</span>`;
+              }
+              const count = d.projectCount != null ? d.projectCount : 0;
+              return `<b style="color:#9af6ff">${d.name}</b><br/>落地项目：${count} 个<br/><span style="color:#7eb6c9">点击下钻查看市区地图</span>`;
+            }
+            if (d && d.kind === "province") {
+              if (!hasProvinceProjects(d.province || d.name)) {
+                return `<b style="color:#7eb6c9">${d.name}</b><br/><span style="color:#6a8a9e">暂无落地项目</span>`;
+              }
+              const count = d.projectCount != null ? d.projectCount : (MOCK.provinceProjects[d.name] || 0);
+              return `<b style="color:#9af6ff">${d.name}</b><br/>落地项目：${count} 个<br/><span style="color:#7eb6c9">点击下钻查看项目详情</span>`;
+            }
+            if (d && d.project) {
+              const p = d.project;
+              return `<b style="color:#9af6ff">${p.name}</b><br/>${p.type || ""} · ${p.loc}<br/>状态：${p.status || "—"}<br/>进度 ${p.progress}%`;
+            }
+            const name = (d && d.name) || params.name;
+            if (!name) return "";
+            if (mapState.level === "china") {
+              if (!hasProvinceProjects(name)) {
+                return `<b style="color:#7eb6c9">${name}</b><br/><span style="color:#6a8a9e">暂无落地项目</span>`;
+              }
+              const count = MOCK.provinceProjects[name] || 0;
+              return `<b style="color:#9af6ff">${name}</b><br/>落地项目：${count} 个<br/><span style="color:#7eb6c9">点击下钻查看项目详情</span>`;
+            }
+            return name;
+          }
+        },
+        geo: geoOpt,
+        series
+      };
+    }
+
+    function startBorderPulse() {
+      if (borderTimer) clearInterval(borderTimer);
+      borderTimer = setInterval(() => {
+        if (!charts.map || mapPulsePaused) return;
+        /* 全国视图禁止 setOption 呼吸：每次刷新都会让飞线整组重闪 */
+        if (mapState.level === "china") return;
+        borderPulse += 0.35;
+        const pulseOpt = {};
+        if (mapState.level === "province" || mapState.level === "city") {
+          const isWuhan = mapState.level === "city";
+          pulseOpt.geo = [
+            {},
+            {
+              itemStyle: {
+                borderWidth: isWuhan
+                  ? 2.1 + Math.sin(borderPulse) * 0.2
+                  : 2.8 + Math.sin(borderPulse) * 0.3,
+                shadowBlur: isWuhan
+                  ? 7 + Math.sin(borderPulse) * 2.5
+                  : 12 + Math.sin(borderPulse) * 4,
+                shadowColor: isWuhan
+                  ? `rgba(0, 240, 255, ${0.2 + Math.sin(borderPulse) * 0.05})`
+                  : `rgba(0, 240, 255, ${0.32 + Math.sin(borderPulse) * 0.08})`
+              }
+            }
+          ];
+        }
+        charts.map.setOption(pulseOpt, { lazyUpdate: true });
+      }, 400);
+    }
+
+    async function renderChinaMap() {
+      const loading = document.getElementById("mapLoading");
+      loading.classList.remove("hidden");
+      try {
+        const [fullGeo, outlineGeo] = await Promise.all([
+          fetchGeo(100000, true),
+          fetchGeo(100000, false)
+        ]);
+        echarts.registerMap("china", refineChinaGeo(fullGeo));
+        echarts.registerMap("chinaOutline", extractMainlandOutline(outlineGeo));
+        try {
+          echarts.registerMap("world", await fetchWorldGeo());
+          mapState.hasWorld = true;
+        } catch (worldErr) {
+          console.warn("世界地图加载失败，仅显示中国", worldErr);
+          mapState.hasWorld = false;
+        }
+        mapState.level = "china";
+        mapState.province = null;
+        mapState.city = null;
+        mapState.mapName = "china";
+        if (!charts.map) {
+          charts.map = echarts.init(document.getElementById("mapChart"));
+          applyChartPointerScale(charts.map);
+          /* 彻底禁止滚轮缩放 / 拖拽平移 */
+          const mapDom = document.getElementById("mapChart");
+          mapDom.addEventListener("wheel", e => e.preventDefault(), { passive: false });
+          mapDom.addEventListener("mousedown", e => {
+            if (e.button === 1) e.preventDefault();
+          });
+        } else {
+          applyChartPointerScale(charts.map);
+        }
+        charts.map.clear();
+        charts.map.setOption(getMapOption("china"), true);
+        const btnBack = document.getElementById("btnBack");
+        btnBack.style.display = "none";
+        btnBack.textContent = "← 返回全国";
+        document.getElementById("mapLevel").textContent = "全国";
+        bindMapEvents();
+        startBorderPulse();
+      } catch (e) {
+        console.error(e);
+        loading.textContent = "地图加载失败，请检查网络（需访问地图 GeoJSON CDN）";
+        return;
+      }
+      loading.classList.add("hidden");
+    }
+
+    async function drillToProvince(provinceName) {
+      const adcode = PROVINCE_ADCODE[provinceName];
+      if (!adcode || mapDrillLock) return;
+      mapDrillLock = true;
+      const loading = document.getElementById("mapLoading");
+      loading.classList.remove("hidden");
+      loading.textContent = `正在加载 ${provinceName} 地图...`;
+      try {
+        let geo;
+        try { geo = await fetchGeo(adcode, true); }
+        catch (_) { geo = await fetchGeo(adcode, false); }
+        let outlineGeo;
+        try { outlineGeo = await fetchGeo(adcode, false); }
+        catch (_) { outlineGeo = geo; }
+        const mapKey = "province_" + adcode;
+        echarts.registerMap(mapKey, geo);
+        echarts.registerMap(mapKey + "_outline", outlineGeo);
+        mapState.level = "province";
+        mapState.province = provinceName;
+        mapState.city = null;
+        mapState.mapName = mapKey;
+        charts.map.clear();
+        charts.map.setOption(getMapOption(mapKey), true);
+        applyChartPointerScale(charts.map);
+        const btnBack = document.getElementById("btnBack");
+        btnBack.style.display = "inline-flex";
+        btnBack.textContent = "← 返回全国";
+        document.getElementById("mapLevel").textContent = provinceName;
+        bindMapEvents();
+        startBorderPulse();
+      } catch (e) {
+        console.error(e);
+        alert("该省级地图暂不可用，请稍后重试");
+      }
+      loading.classList.add("hidden");
+      loading.textContent = "地图数据加载中...";
+      mapDrillLock = false;
+    }
+
+    async function drillToCity(cityName) {
+      const adcode = CITY_ADCODE[cityName];
+      const parent = CITY_DRILL_PARENT[cityName];
+      if (!adcode || !parent || mapState.province !== parent || mapDrillLock) return;
+      mapDrillLock = true;
+      const loading = document.getElementById("mapLoading");
+      loading.classList.remove("hidden");
+      loading.textContent = `正在加载 ${cityName} 地图...`;
+      try {
+        let geo;
+        try { geo = await fetchGeo(adcode, true); }
+        catch (_) { geo = await fetchGeo(adcode, false); }
+        let outlineGeo;
+        try { outlineGeo = await fetchGeo(adcode, false); }
+        catch (_) { outlineGeo = geo; }
+        const mapKey = "city_" + adcode;
+        echarts.registerMap(mapKey, geo);
+        echarts.registerMap(mapKey + "_outline", outlineGeo);
+        mapState.level = "city";
+        mapState.city = cityName;
+        mapState.mapName = mapKey;
+        charts.map.clear();
+        charts.map.setOption(getMapOption(mapKey), true);
+        applyChartPointerScale(charts.map);
+        const btnBack = document.getElementById("btnBack");
+        btnBack.style.display = "inline-flex";
+        btnBack.textContent = `← 返回${parent}`;
+        document.getElementById("mapLevel").textContent = cityName;
+        bindMapEvents();
+        startBorderPulse();
+      } catch (e) {
+        console.error(e);
+        alert("该市级地图暂不可用，请稍后重试");
+      }
+      loading.classList.add("hidden");
+      loading.textContent = "地图数据加载中...";
+      mapDrillLock = false;
+    }
+
+    function showProjectModal(project) {
+      if (!project) return;
+      document.getElementById("mName").textContent = project.name;
+      const unitRaw = (project.unit || "").trim();
+      document.getElementById("mUnit").textContent =
+        !unitRaw || unitRaw === "/" || unitRaw === "-" ? "—" : unitRaw;
+      document.getElementById("mType").textContent = project.type || "—";
+      document.getElementById("mLoc").textContent = project.loc;
+      const statusEl = document.getElementById("mStatus");
+      const statusText = project.status || "—";
+      statusEl.textContent = statusText;
+      statusEl.className = "project-card-status " + statusClass(statusText);
+      document.getElementById("mProgressText").textContent = project.progress + "%";
+      document.getElementById("mProgressBar").style.width = project.progress + "%";
+      document.getElementById("mStart").textContent = project.start || "—";
+      document.getElementById("mOwner").textContent = project.owner || "—";
+      document.getElementById("mPhone").textContent = project.phone || "—";
+      document.getElementById("projectModal").classList.add("show");
+    }
+
+    function tryDrillByName(name) {
+      if (!name || mapDrillLock) return false;
+      if (mapState.level === "china") {
+        if (!hasProvinceProjects(name)) return false;
+        drillToProvince(name);
+        return true;
+      }
+      if (mapState.level === "province") {
+        if (!canDrillCity(mapState.province, name)) return false;
+        drillToCity(name);
+        return true;
+      }
+      return false;
+    }
+
+    function bindMapEvents() {
+      charts.map.off("click");
+      applyChartPointerScale(charts.map);
+
+      const mapDom = document.getElementById("mapChart");
+      if (mapDom && !mapDom.__pulsePauseBound) {
+        mapDom.__pulsePauseBound = true;
+        mapDom.addEventListener("pointerdown", () => { mapPulsePaused = true; });
+        mapDom.addEventListener("pointerup", () => { mapPulsePaused = false; });
+        mapDom.addEventListener("pointerleave", () => { mapPulsePaused = false; });
+      }
+
+      /* DOM 兜底：按缩放校正坐标后，用 zr 命中目标名称再下钻 */
+      if (mapDom && !mapDom.__drillFallbackBound) {
+        mapDom.__drillFallbackBound = true;
+        mapDom.addEventListener("click", e => {
+          if (mapDrillLock || !charts.map) return;
+          if (mapState.level !== "china" && mapState.level !== "province") return;
+          const zr = charts.map.getZr();
+          const root = zr.painter.getViewportRoot();
+          const { sx, sy, rect } = getDomScale(root);
+          const x = (e.clientX - rect.left) / sx;
+          const y = (e.clientY - rect.top) / sy;
+          let name = "";
+          try {
+            const hover = zr.handler.findHover(x, y);
+            const t = hover && (hover.target || hover.topTarget);
+            if (t) {
+              name =
+                (t.eventData && (t.eventData.name || (t.eventData.data && t.eventData.data.name))) ||
+                (t.__data && t.__data.name) ||
+                (t.style && t.style.text) ||
+                "";
+              /* MapDraw 区域常挂在 parent / ancestors 上 */
+              let p = t;
+              for (let i = 0; i < 6 && p && !name; i++, p = p.parent) {
+                if (p.eventData && p.eventData.name) name = p.eventData.name;
+                if (p.__title) name = p.__title;
+              }
+            }
+          } catch (_) { /* ignore */ }
+
+          if (!name) {
+            try {
+              /* 取地图系列上的区域名 */
+              const seriesModel = charts.map.getModel().getSeriesByIndex(0);
+              if (seriesModel && seriesModel.coordinateSystem && seriesModel.coordinateSystem.getRegionByCoord) {
+                const coord = charts.map.convertFromPixel({ seriesIndex: 0 }, [x, y]);
+                if (coord) {
+                  const region = seriesModel.coordinateSystem.getRegionByCoord(coord);
+                  if (region && region.name) name = region.name;
+                }
+              }
+            } catch (_) { /* ignore */ }
+          }
+
+          if (name) tryDrillByName(name);
+        });
+      }
+
+      charts.map.on("click", params => {
+        if (mapDrillLock) return;
+        const d = params.data;
+        if (d && d.kind === "project" && d.project) {
+          showProjectModal(d.project);
+          return;
+        }
+        const name =
+          (d && d.kind === "province" && (d.province || d.name)) ||
+          (d && d.kind === "city" && (d.city || d.name)) ||
+          params.name ||
+          "";
+        if (!name) return;
+        tryDrillByName(name);
+      });
+    }
+
+    document.getElementById("btnBack").addEventListener("click", () => {
+      if (mapState.level === "city" && mapState.province) {
+        drillToProvince(mapState.province);
+        return;
+      }
+      renderChinaMap();
+    });
+    document.getElementById("modalClose").addEventListener("click", () => {
+      document.getElementById("projectModal").classList.remove("show");
+    });
+    document.getElementById("projectModal").addEventListener("click", e => {
+      if (e.target.id === "projectModal") e.currentTarget.classList.remove("show");
+    });
+
+    /**************************************************************************
+     * 定时刷新
+     **************************************************************************/
+    function softRefresh() {
+      const kpiEls = document.querySelectorAll(".kpi-value");
+      const bases = [
+        MOCK.kpi.projectTotal,
+        MOCK.kpi.provinceCount,
+        MOCK.kpi.deviceTypes,
+        MOCK.kpi.deviceTotal
+      ];
+      kpiEls.forEach((el, i) => {
+        /* 接入设备种类 / 数量保持固定，不抖动 */
+        const jitter = 0;
+        const next = Math.max(0, bases[i] + jitter);
+        el.dataset.target = next;
+        animateNumber(el, next, 800);
+      });
+    }
+
+    function resizeAll() {
+      Object.values(charts).forEach(c => c && c.resize());
+    }
+
+    /* 1920×1080 设计稿等比缩放，保证各分辨率视觉一致 */
+    const DESIGN_W = 1920;
+    const DESIGN_H = 1080;
+    function fitScreenScale() {
+      const screen = document.getElementById("screenRoot");
+      if (!screen) return;
+      const s = Math.min(window.innerWidth / DESIGN_W, window.innerHeight / DESIGN_H);
+      const left = (window.innerWidth - DESIGN_W * s) / 2;
+      const top = (window.innerHeight - DESIGN_H * s) / 2;
+      SCREEN_SCALE = s;
+      screen.style.transform = `scale(${s})`;
+      screen.style.left = `${left}px`;
+      screen.style.top = `${top}px`;
+      syncAllChartPointerScale();
+      resizeAll();
+    }
+
+    function isFullscreen() {
+      return !!(document.fullscreenElement || document.webkitFullscreenElement);
+    }
+
+    function syncFullscreenBtn() {
+      const btn = document.getElementById("btnFullscreen");
+      if (!btn) return;
+      const on = isFullscreen();
+      const text = btn.querySelector(".btn-fullscreen-text");
+      if (text) text.textContent = on ? "退出全屏" : "全屏展示";
+      btn.title = on ? "退出全屏" : "全屏展示";
+    }
+
+    async function toggleFullscreen() {
+      try {
+        if (isFullscreen()) {
+          if (document.exitFullscreen) await document.exitFullscreen();
+          else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        } else {
+          const el = document.documentElement;
+          if (el.requestFullscreen) await el.requestFullscreen();
+          else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        }
+      } catch (e) {
+        console.warn("全屏切换失败", e);
+      }
+    }
+
+    async function boot() {
+      fitScreenScale();
+      runKpiAnimation();
+      renderProjectList("");
+      initStatusChart();
+      initTypeChart();
+      initUnitDistChart();
+      await renderChinaMap();
+      const btnFs = document.getElementById("btnFullscreen");
+      if (btnFs) btnFs.addEventListener("click", toggleFullscreen);
+      document.addEventListener("fullscreenchange", () => {
+        syncFullscreenBtn();
+        fitScreenScale();
+        resizeAll();
+      });
+      document.addEventListener("webkitfullscreenchange", () => {
+        syncFullscreenBtn();
+        fitScreenScale();
+        resizeAll();
+      });
+      syncFullscreenBtn();
+      window.addEventListener("resize", () => {
+        fitScreenScale();
+        resizeAll();
+      });
+      setInterval(softRefresh, 30000);
+    }
+
+    const LOGIN_PWD = "8868";
+    const LOGIN_KEY = "gongdi_map_auth_v1";
+    let appBooted = false;
+
+    function isAuthed() {
+      try {
+        return sessionStorage.getItem(LOGIN_KEY) === "1";
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function setAuthed() {
+      try {
+        sessionStorage.setItem(LOGIN_KEY, "1");
+      } catch (e) { /* ignore */ }
+    }
+
+    async function enterApp() {
+      const gate = document.getElementById("loginGate");
+      if (gate) gate.classList.add("is-hidden");
+      if (appBooted) {
+        fitScreenScale();
+        resizeAll();
+        return;
+      }
+      appBooted = true;
+      await boot();
+    }
+
+    function initLoginGate() {
+      const form = document.getElementById("loginForm");
+      const input = document.getElementById("loginPwd");
+      const err = document.getElementById("loginError");
+      if (!form || !input) {
+        enterApp();
+        return;
+      }
+      if (isAuthed()) {
+        enterApp();
+        return;
+      }
+      form.addEventListener("submit", e => {
+        e.preventDefault();
+        const val = (input.value || "").trim();
+        if (val === LOGIN_PWD) {
+          if (err) err.classList.remove("is-show");
+          setAuthed();
+          enterApp();
+          return;
+        }
+        if (err) err.classList.add("is-show");
+        input.value = "";
+        input.focus();
+      });
+      input.addEventListener("input", () => {
+        if (err) err.classList.remove("is-show");
+      });
+      requestAnimationFrame(() => input.focus());
+    }
+
+    initLoginGate();
+  </script>
+</body>
+</html>
