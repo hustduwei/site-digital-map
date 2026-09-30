@@ -3277,6 +3277,36 @@
       mapDrillLock = false;
     }
 
+    function isBlankContact(v) {
+      const s = (v == null ? "" : String(v)).trim();
+      return !s || s === "/" || s === "-" || s === "—" || s === "－";
+    }
+
+    /* 对接人：保留首字，其余打码。例：丁振轩 → 丁**；欧洋 → 欧* */
+    function maskOwnerName(name) {
+      if (isBlankContact(name)) return "—";
+      const s = String(name).trim();
+      if (s.length === 1) return "*";
+      return s[0] + "*".repeat(s.length - 1);
+    }
+
+    /* 联系方式：手机号保留前3后4。例：15827939799 → 158****9799 */
+    function maskPhone(phone) {
+      if (isBlankContact(phone)) return "—";
+      const s = String(phone).trim();
+      const digits = s.replace(/\D/g, "");
+      if (digits.length === 11) {
+        return digits.slice(0, 3) + "****" + digits.slice(7);
+      }
+      if (digits.length >= 7) {
+        const keepHead = Math.min(3, Math.floor(digits.length / 3));
+        const keepTail = Math.min(4, digits.length - keepHead - 2);
+        return digits.slice(0, keepHead) + "****" + digits.slice(digits.length - keepTail);
+      }
+      if (s.length <= 2) return "*".repeat(s.length);
+      return s[0] + "*".repeat(Math.max(1, s.length - 2)) + s[s.length - 1];
+    }
+
     function showProjectModal(project) {
       if (!project) return;
       document.getElementById("mName").textContent = project.name;
@@ -3292,8 +3322,8 @@
       document.getElementById("mProgressText").textContent = project.progress + "%";
       document.getElementById("mProgressBar").style.width = project.progress + "%";
       document.getElementById("mStart").textContent = project.start || "—";
-      document.getElementById("mOwner").textContent = project.owner || "—";
-      document.getElementById("mPhone").textContent = project.phone || "—";
+      document.getElementById("mOwner").textContent = maskOwnerName(project.owner);
+      document.getElementById("mPhone").textContent = maskPhone(project.phone);
       document.getElementById("projectModal").classList.add("show");
     }
 
